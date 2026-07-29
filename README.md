@@ -46,15 +46,42 @@ Tested with a Meta Quest 2 over Link and SteamVR (UUVR set to OpenVR).
 
 ## Installation
 
-1. Install UUVR for Liftoff, most easily through Rai Pal.
-2. Download the release ZIP and extract it into the `BepInEx` folder Rai Pal created:
-   `%APPDATA%\raicuparta\rai-pal\data\installed-mods\<id>\bepinex\BepInEx\`
-3. Start the game once so the config file is written.
+**First, get UUVR running.** This plugin does nothing on its own.
 
-You should end up with `BepInEx\plugins\LiftoffFpvGoggles\LiftoffFpvGoggles.dll`.
+1. Install [Rai Pal](https://github.com/Raicuparta/rai-pal).
+2. Find *Liftoff: Micro Drones* in it and install the mod **UUVR Mono Modern**.
+3. Start the game once through Rai Pal and check that it reaches the headset. If UUVR does not
+   work for you, nothing here will either.
+
+**Then add this plugin.**
+
+1. Download the release ZIP from [Releases](../../releases) and extract it anywhere.
+2. Right click `install.ps1` → **Run with PowerShell**.
+
+The script finds Rai Pal's BepInEx folder by itself and tells you what to do next. If Windows
+blocks it, open a PowerShell window in the extracted folder and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+<details>
+<summary>Installing by hand instead</summary>
+
+Copy `LiftoffFpvGoggles.dll` into the BepInEx folder Rai Pal created for Liftoff:
+
+```
+%APPDATA%\raicuparta\rai-pal\data\installed-mods\<game id>\bepinex\BepInEx\plugins\LiftoffFpvGoggles\
+```
+
+The `<game id>` is a long number — pick the folder that already contains
+`plugins\uuvr-mono-modern`.
+</details>
+
+To remove it again: `.\install.ps1 -Uninstall`. Your settings file is left in place.
 
 > Rai Pal overwrites the plugins folder when it reinstalls UUVR. If the plugin disappears,
-> just extract it again.
+> run `install.ps1` again.
 
 ## Flying
 

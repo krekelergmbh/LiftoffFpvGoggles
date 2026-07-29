@@ -28,6 +28,10 @@ if (Test-Path $staging) { Remove-Item $staging -Recurse -Force -Confirm:$false }
 New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
 
 Copy-Item $dll $pluginDir
+
+# install.ps1 sits at the top of the ZIP so it is the first thing anyone sees after
+# extracting; README and LICENSE ride along next to the DLL.
+Copy-Item (Join-Path $root "install.ps1") $staging
 Copy-Item (Join-Path $root "README.md") $pluginDir
 Copy-Item (Join-Path $root "LICENSE") $pluginDir
 
