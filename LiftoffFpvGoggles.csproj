@@ -74,6 +74,11 @@
       <HintPath>$(GameManaged)\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- The game's own Post Processing Stack v2, used for the analog image. -->
+    <Reference Include="Unity.Postprocessing.Runtime">
+      <HintPath>$(GameManaged)\Unity.Postprocessing.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

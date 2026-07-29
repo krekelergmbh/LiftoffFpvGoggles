@@ -22,7 +22,25 @@ namespace LiftoffFpvGoggles
 
         private static float _builtHalfWidth, _builtHalfHeight, _builtDistance;
         private static float _builtWidth, _builtGap, _builtThickness, _builtScale;
+        private static IndicatorColour _builtColour;
         private static bool _built;
+
+        /// <summary>
+        /// The colour has to travel in the mesh, not on the material. Whichever shader we end
+        /// up on decides that for us: Hidden/Internal-Colored - which is what this actually
+        /// gets in Liftoff - ignores _Color entirely and returns the vertex colour. It only
+        /// looked white because a mesh with no colour stream is fed white by default.
+        /// </summary>
+        private static Color32 CurrentColour()
+        {
+            switch (FpvGogglesPlugin.HorizonColour.Value)
+            {
+                case IndicatorColour.Green: return new Color32(57, 255, 20, 255);
+                case IndicatorColour.Red: return new Color32(255, 40, 40, 255);
+                case IndicatorColour.Yellow: return new Color32(255, 225, 0, 255);
+                default: return new Color32(255, 255, 255, 255);
+            }
+        }
 
         internal static void Update(Camera viewCamera, float halfWidth, float halfHeight, float distance)
         {
@@ -37,6 +55,12 @@ namespace LiftoffFpvGoggles
                 Build(viewCamera);
                 if (_root == null) return;
             }
+
+            // 'Off' is part of the colour cycle rather than a separate switch, so the key can
+            // walk past it without the indicator having to be torn down and rebuilt.
+            bool shown = FpvGogglesPlugin.HorizonColour.Value != IndicatorColour.Off;
+            if (_root.activeSelf != shown) _root.SetActive(shown);
+            if (!shown) return;
 
             if (GeometryChanged(halfWidth, halfHeight, distance))
             {
@@ -88,7 +112,8 @@ namespace LiftoffFpvGoggles
                 || _builtWidth != FpvGogglesPlugin.HorizonWidth.Value
                 || _builtGap != FpvGogglesPlugin.HorizonGap.Value
                 || _builtThickness != FpvGogglesPlugin.HorizonThickness.Value
-                || _builtScale != FpvGogglesPlugin.HorizonScale.Value;
+                || _builtScale != FpvGogglesPlugin.HorizonScale.Value
+                || _builtColour != FpvGogglesPlugin.HorizonColour.Value;
         }
 
         private static void Build(Camera viewCamera)
@@ -139,10 +164,12 @@ namespace LiftoffFpvGoggles
 
             // The bar sits at the origin of its own object so it rolls about the centre of the
             // window; the pitch offset is applied afterwards, in screen space.
+            Color32 colour = CurrentColour();
+
             Mesh bar = new Mesh();
             bar.name = "FpvHorizonBar";
             bar.hideFlags = HideFlags.HideAndDontSave;
-            FillTwoBars(bar, -outer, -gap, gap, outer, thickness);
+            FillTwoBars(bar, -outer, -gap, gap, outer, thickness, colour);
             _bar.GetComponent<MeshFilter>().sharedMesh = bar;
 
             // Fixed reference: a short dash in the gap, plus two small ticks flanking it.
@@ -151,7 +178,7 @@ namespace LiftoffFpvGoggles
             mark.name = "FpvHorizonCentre";
             mark.hideFlags = HideFlags.HideAndDontSave;
             float dash = gap * 0.35f;
-            FillTwoBars(mark, -dash, -dash * 0.25f, dash * 0.25f, dash, thickness);
+            FillTwoBars(mark, -dash, -dash * 0.25f, dash * 0.25f, dash, thickness, colour);
             centre.GetComponent<MeshFilter>().sharedMesh = mark;
 
             _root.transform.localPosition = new Vector3(0f, 0f, distance);
@@ -163,12 +190,13 @@ namespace LiftoffFpvGoggles
             _builtGap = FpvGogglesPlugin.HorizonGap.Value;
             _builtThickness = FpvGogglesPlugin.HorizonThickness.Value;
             _builtScale = FpvGogglesPlugin.HorizonScale.Value;
+            _builtColour = FpvGogglesPlugin.HorizonColour.Value;
             _built = true;
         }
 
         /// <summary>Two rectangles in the XY plane, wound both ways so culling cannot hide them.</summary>
         private static void FillTwoBars(Mesh mesh, float leftOuter, float leftInner,
-            float rightInner, float rightOuter, float thickness)
+            float rightInner, float rightOuter, float thickness, Color32 colour)
         {
             Vector3[] vertices =
             {
@@ -184,8 +212,12 @@ namespace LiftoffFpvGoggles
                 4, 5, 6, 4, 6, 7, 6, 5, 4, 7, 6, 4,
             };
 
+            Color32[] colours = new Color32[vertices.Length];
+            for (int i = 0; i < colours.Length; i++) colours[i] = colour;
+
             mesh.Clear();
             mesh.vertices = vertices;
+            mesh.colors32 = colours;
             mesh.triangles = triangles;
             mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1000f);
         }

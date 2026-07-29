@@ -30,6 +30,20 @@ namespace LiftoffFpvGoggles
         NumPadMultiply = 0x6A, NumPadPlus = 0x6B, NumPadMinus = 0x6D, NumPadDivide = 0x6F,
     }
 
+    /// <summary>
+    /// Colours for the horizon indicator, in the order the cycle key walks through them.
+    /// White reads well over grass and tarmac and vanishes against a bright sky or a concrete
+    /// wall, which is the whole reason this exists.
+    /// </summary>
+    public enum IndicatorColour
+    {
+        White = 0,
+        Green = 1,
+        Red = 2,
+        Yellow = 3,
+        Off = 4,
+    }
+
     [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.8.0")]
     [BepInDependency("raicuparta.uuvr-modern", BepInDependency.DependencyFlags.HardDependency)]
     public class FpvGogglesPlugin : BaseUnityPlugin
@@ -45,7 +59,6 @@ namespace LiftoffFpvGoggles
         // --- Head tracking (the actual point of this mod) ---
         internal static ConfigEntry<bool> LockRotation;
         internal static ConfigEntry<bool> LockPosition;
-        internal static ConfigEntry<HotKey> ToggleTrackingKey;
 
         // --- HUD ---
         internal static ConfigEntry<bool> HudOnVrPlane;
@@ -83,6 +96,8 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<float> HorizonCameraTilt;
         internal static ConfigEntry<HotKey> HorizonBiggerKey;
         internal static ConfigEntry<HotKey> HorizonSmallerKey;
+        internal static ConfigEntry<IndicatorColour> HorizonColour;
+        internal static ConfigEntry<HotKey> HorizonColourKey;
 
         // --- Analog video ---
         internal static ConfigEntry<bool> AnalogEnabled;
@@ -98,13 +113,16 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<bool> Breakup;
         internal static ConfigEntry<bool> LogSignal;
 
-        // --- Optional: full simulation ---
-        internal static ConfigEntry<bool> VirtualScreen;
-        internal static ConfigEntry<float> LensFovDiagonal;
-        internal static ConfigEntry<int> CaptureHeight;
-        internal static ConfigEntry<bool> FlipScreen;
-        internal static ConfigEntry<HotKey> LensFovUpKey;
-        internal static ConfigEntry<HotKey> LensFovDownKey;
+        // --- Analog image (post processing) ---
+        internal static ConfigEntry<bool> ImageProcessing;
+        internal static ConfigEntry<float> Saturation;
+        internal static ConfigEntry<float> ColourLoss;
+        internal static ConfigEntry<float> Contrast;
+        internal static ConfigEntry<float> Temperature;
+        internal static ConfigEntry<float> Aberration;
+        internal static ConfigEntry<float> Distortion;
+        internal static ConfigEntry<float> BloomIntensity;
+        internal static ConfigEntry<bool> AutoExposure;
 
         internal static Type PoseDriverType;
         internal static PropertyInfo DisablePositionalTrackingProperty;
@@ -120,19 +138,17 @@ namespace LiftoffFpvGoggles
 
         // Hotkey toggles are session-only: null means "follow the config file". Otherwise a
         // quick A/B comparison during one flight would silently become the permanent setting.
-        internal static bool? SessionRotationLock;
-        internal static bool? SessionPositionLock;
         internal static bool? SessionMask;
         internal static bool? SessionAnalog;
 
         internal static bool BaseRotationLocked
         {
-            get { return SessionRotationLock.HasValue ? SessionRotationLock.Value : (LockRotation != null && LockRotation.Value); }
+            get { return LockRotation != null && LockRotation.Value; }
         }
 
         internal static bool BasePositionLocked
         {
-            get { return SessionPositionLock.HasValue ? SessionPositionLock.Value : (LockPosition != null && LockPosition.Value); }
+            get { return LockPosition != null && LockPosition.Value; }
         }
 
         internal static bool BaseMaskEnabled
@@ -206,10 +222,6 @@ namespace LiftoffFpvGoggles
                 "Head Tracking", "Disable Head Position", true,
                 "Ignores head position, so leaning or moving your head no longer shifts the camera.");
 
-            ToggleTrackingKey = Config.Bind(
-                "Head Tracking", "Toggle Key", HotKey.F9,
-                "Toggles head tracking during a flight, for comparison. Session only, never written to this file.");
-
             // ---------------- HUD ----------------
 
             // CanvasRedirect puts only the game's canvases on the VR plane, so the HUD can be
@@ -262,10 +274,10 @@ namespace LiftoffFpvGoggles
 
             MaskEnabled = Config.Bind(
                 "Goggle Mask", "Enable Mask", false,
-                "Draws a black border that narrows the image down to the field of view of a real goggle. Note what this does and does not do: it cuts a hole into a picture still rendered at headset field of view, so you see less of the world - it does not squeeze a wide angle lens onto a small screen. For that, see 'Enable Virtual Screen'.");
+                "Draws a black border that narrows the image down to the field of view of a real goggle, and makes that window the area the analog artefacts are drawn on. Note what it does not do: it cuts a hole into a picture still rendered at headset field of view, so you see less of the world at the same scale - it does not squeeze a wide angle lens onto a small screen.");
 
             ToggleMaskKey = Config.Bind("Goggle Mask", "Toggle Key", HotKey.F10,
-                "Toggles goggle rendering (mask, or virtual screen if enabled) during a flight. Session only.");
+                "Toggles the goggle mask during a flight. Session only.");
 
             MaskFovDiagonal = Config.Bind(
                 "Goggle Mask", "Diagonal FOV", 46f,
@@ -333,6 +345,18 @@ namespace LiftoffFpvGoggles
             HorizonBiggerKey = Config.Bind("Horizon", "Grow Key", HotKey.Insert, "Makes the horizon indicator bigger.");
             HorizonSmallerKey = Config.Bind("Horizon", "Shrink Key", HotKey.Delete, "Makes the horizon indicator smaller.");
 
+            // A single colour cannot work everywhere: white is unreadable against a bright sky
+            // or a concrete hall, and the map decides that, not the pilot. So it cycles - and
+            // unlike the session-only toggles this one is remembered, because it is a
+            // preference rather than a comparison.
+            HorizonColour = Config.Bind(
+                "Horizon", "Colour", IndicatorColour.White,
+                "Colour of the horizon indicator. 'Off' hides it without switching the feature off, so the cycle key can walk past it.");
+
+            HorizonColourKey = Config.Bind(
+                "Horizon", "Cycle Colour Key", HotKey.F9,
+                "Steps through white, green, red, yellow and off. Saved to this file, unlike the session-only toggles.");
+
             // ---------------- Analog video ----------------
 
             // What is drawn here are flat quads laid over the picture. That rules out anything
@@ -356,8 +380,8 @@ namespace LiftoffFpvGoggles
                     new AcceptableValueRange<float>(0f, 1f)));
 
             BaseGrain = Config.Bind(
-                "Analog Video", "Base Grain", 0.05f,
-                new ConfigDescription("Grain that stays on the picture even at full signal. Analog is never completely clean, and a picture without it looks digital.",
+                "Analog Video", "Base Grain", 0.02f,
+                new ConfigDescription("Grain that stays on the picture even at full signal. Analog is never completely clean, and a picture without it looks digital - but a clean link should be quiet enough that you stop noticing it.",
                     new AcceptableValueRange<float>(0f, 0.5f)));
 
             ScanlineStrength = Config.Bind(
@@ -398,29 +422,58 @@ namespace LiftoffFpvGoggles
                 "Analog Video", "Log Signal", false,
                 "Writes link quality and distance to the BepInEx log every two seconds. Use it to set 'Signal Range' to something that matches your own gear.");
 
-            // ---------------- Optional: full simulation ----------------
+            // ---------------- Analog image ----------------
 
-            VirtualScreen = Config.Bind(
-                "FPV Screen", "Enable Virtual Screen", false,
-                "OPTIONAL, needs 'Enable Mask' as well. Renders the drone camera with a real lens field of view into a texture and shows it on a flat screen in front of your eyes - a wide angle image squeezed onto a small screen, like a real goggle.");
+            // This half runs through Liftoff's own copy of the Post Processing Stack v2, so it
+            // reads the rendered image back and can do what an overlay cannot: colour, lens
+            // shape, blown highlights, exposure. Costs nothing to ship - the game already uses
+            // the package, so its shaders are in the build.
+            ImageProcessing = Config.Bind(
+                "Analog Image", "Enable Image Processing", true,
+                "Runs the picture through the game's own post processing: colour response, chroma fringing, lens distortion, bloom and automatic exposure. Needs 'Enable Analog Video' as well. Switch this off if the image processing misbehaves - the overlay keeps working on its own.");
 
-            LensFovDiagonal = Config.Bind(
-                "FPV Screen", "Camera Lens FOV", 120f,
-                new ConfigDescription("Diagonal field of view of the drone camera. Typical FPV cameras are 120-150.",
-                    new AcceptableValueRange<float>(30f, 175f)));
+            Saturation = Config.Bind(
+                "Analog Image", "Saturation", -20f,
+                new ConfigDescription("Colour saturation at full signal. Analog is washed out next to a digital feed; negative values take colour away.",
+                    new AcceptableValueRange<float>(-100f, 100f)));
 
-            CaptureHeight = Config.Bind(
-                "FPV Screen", "Capture Height", 720,
-                new ConfigDescription("Vertical resolution the drone camera renders at. Analog video is around 480 lines.",
-                    new AcceptableValueRange<int>(240, 2160)));
+            // The chroma subcarrier is the first thing a weak link loses, so a fading picture
+            // turns black and white long before it turns to snow.
+            ColourLoss = Config.Bind(
+                "Analog Image", "Colour Loss", 1f,
+                new ConfigDescription("How much of the colour dies with the signal. At 1 a lost link leaves a black and white picture, which is what really happens - the colour goes first and the brightness stays readable.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
-            FlipScreen = Config.Bind("FPV Screen", "Flip Screen Vertically", false,
-                "Only needed if the picture ends up upside down.");
+            Contrast = Config.Bind(
+                "Analog Image", "Contrast", 10f,
+                new ConfigDescription("Analog cameras are contrastier than a clean render, and lose the shadows for it.",
+                    new AcceptableValueRange<float>(-100f, 100f)));
 
-            LensFovUpKey = Config.Bind("FPV Screen", "Increase Lens FOV Key", HotKey.None,
-                "Unbound by default - pick a free key if you switch the virtual screen on.");
-            LensFovDownKey = Config.Bind("FPV Screen", "Decrease Lens FOV Key", HotKey.None,
-                "Unbound by default.");
+            Temperature = Config.Bind(
+                "Analog Image", "Colour Temperature", 10f,
+                new ConfigDescription("White balance. Cheap FPV cameras run warm; negative is cooler.",
+                    new AcceptableValueRange<float>(-100f, 100f)));
+
+            Aberration = Config.Bind(
+                "Analog Image", "Chromatic Aberration", 0.35f,
+                new ConfigDescription("Colour fringing at edges - a small plastic lens plus a composite signal. The closest this can get to real chroma smear without a custom shader.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            Distortion = Config.Bind(
+                "Analog Image", "Lens Distortion", -20f,
+                new ConfigDescription("Barrel distortion of the FPV lens. Negative bulges outwards, which is the direction a wide angle lens bends.",
+                    new AcceptableValueRange<float>(-100f, 100f)));
+
+            BloomIntensity = Config.Bind(
+                "Analog Image", "Bloom", 0.8f,
+                new ConfigDescription("How hard bright spots blow out. Analog cameras handle a light source or a bright sky far worse than a render does, and this is where you notice it.",
+                    new AcceptableValueRange<float>(0f, 3f)));
+
+            // The single most recognisable behaviour of a cheap FPV camera: point it at the sky
+            // and everything else goes black, then slowly claws its way back.
+            AutoExposure = Config.Bind(
+                "Analog Image", "Auto Exposure", true,
+                "Gain control that hunts for an exposure, the way an FPV camera does when you pitch up into the sky and back down again.");
 
             // ---------------- Patches ----------------
 
@@ -461,7 +514,40 @@ namespace LiftoffFpvGoggles
             // the same way.
             FpvGogglesRunner.Create();
 
+            WarnAboutDuplicateKeys();
+
             Log.LogInfo("Liftoff FPV Goggles ready.");
+        }
+
+        /// <summary>
+        /// Two settings on one key means one press quietly does both things, and the second one
+        /// is always the one you forgot about. Defaults change between versions while config
+        /// files do not, so this is exactly where it happens.
+        /// </summary>
+        private void WarnAboutDuplicateKeys()
+        {
+            ConfigEntry<HotKey>[] keys =
+            {
+                UiSmallerKey, UiBiggerKey, DumpHudKey,
+                UiLeftKey, UiRightKey, UiUpKey, UiDownKey,
+                ToggleMaskKey, FovUpKey, FovDownKey,
+                HorizonBiggerKey, HorizonSmallerKey, HorizonColourKey,
+                ToggleAnalogKey,
+            };
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (keys[i] == null || keys[i].Value == HotKey.None) continue;
+
+                for (int j = i + 1; j < keys.Length; j++)
+                {
+                    if (keys[j] == null || keys[j].Value != keys[i].Value) continue;
+
+                    Log.LogWarning("Both '" + keys[i].Definition.Section + "/" + keys[i].Definition.Key +
+                        "' and '" + keys[j].Definition.Section + "/" + keys[j].Definition.Key +
+                        "' are bound to " + keys[i].Value + ", so one press does both.");
+                }
+            }
         }
 
         /// <summary>

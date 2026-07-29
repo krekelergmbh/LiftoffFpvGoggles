@@ -28,7 +28,8 @@ on the field, and it quietly makes the sim easier than the thing it is simulatin
 * **Resizable HUD.** In a VR flight the game's HUD moves onto a plane you can size and
   position, instead of being smeared across the whole field of view.
 * **Betaflight-style artificial horizon.** A rolling bar with a fixed centre mark, with
-  compensation for the FPV camera's upward tilt — the way a real OSD behaves.
+  compensation for the FPV camera's upward tilt — the way a real OSD behaves. Cycle its colour
+  with one key when the map swallows it.
 * **Hide HUD elements.** Drop the crosshair, the stick indicators, the recording icon, or the
   entire HUD, by name.
 
@@ -37,15 +38,14 @@ on the field, and it quietly makes the sim easier than the thing it is simulatin
 *Waiting on the ground. Both shots are single-eye SteamVR mirror captures, which is why the
 lens shape is visible — in the headset it fills your view.*
 
+* **Analog video.** The picture arrives the way one does over a real radio link: it vignettes,
+  it picks up snow, it loses its colour before it loses the picture, and going behind a building
+  costs you all of it. See [Analog Video](#analog-video-optional-off).
+
 Optional, off by default:
 
-* **Analog video** — vignette, static and scanlines over the picture, with the amount of snow
-  driven by how far away you are, whether anything is in the way, and where the antenna is
-  pointing. See [Analog Video](#analog-video-optional-off).
-* **Goggle mask** — a black border cutting the picture down to a real goggle's field of view.
-* **Virtual screen** — renders the drone camera at a real lens FOV (120°+) onto a small flat
-  screen, so a wide angle image is squeezed onto a goggle-sized display. The most faithful
-  option, and the least comfortable.
+* **Goggle mask** — a black border cutting the picture down to a real goggle's field of view,
+  which also becomes the area the analog artefacts are drawn on.
 
 ## Requirements
 
@@ -121,13 +121,14 @@ once — `F4`, `F5`, `F11` and `F12` toggle Liftoff's HUD and are deliberately l
 | `Home` / `End` | Move HUD left / right |
 | `Page Up` / `Page Down` | Move HUD up / down |
 | `Insert` / `Delete` | Horizon indicator larger / smaller |
+| `F9` | Horizon colour: white → green → red → yellow → off |
 | `F6` | Analog video on/off |
-| `F9` | Head tracking on/off, for comparison |
-| `F10` | Goggle mask / virtual screen on/off |
+| `F10` | Goggle mask on/off |
 
-`F6`, `F9` and `F10` apply to the running session only and are never written to the config
-file — a quick A/B comparison during one flight should not silently become the permanent
-setting. `F6` is also the quickest way to try the analog look without editing anything.
+`F6` and `F10` apply to the running session only and are never written to the config file — a
+quick A/B comparison during one flight should not silently become the permanent setting. The
+horizon keys are the other way round and *are* saved, because size and colour are preferences
+rather than comparisons.
 
 All goggle keys are ignored in menus, where you could not see their effect anyway.
 
@@ -177,7 +178,12 @@ Useful names in Liftoff: `Center` (the crosshair), `ArmedDisplay` (crosshair plu
 | `Camera Tilt` | `0` | Upward tilt of the FPV camera in degrees, as set in Liftoff. |
 | `Pitch Range` | `30` | Degrees of pitch from centre to the top edge. Larger = calmer. |
 | `Scale` | `1` | Master size. Also scales how far the bar travels. |
+| `Colour` | `White` | White, Green, Red, Yellow or Off. `F9` cycles it in flight. |
 | `Bar Width`, `Centre Gap`, `Line Thickness` | | Shape of the indicator. |
+
+No single colour works everywhere — white is unreadable against a bright sky or a concrete hall,
+and the map decides that, not you. Hence the cycle key. `Off` is part of the cycle rather than a
+separate switch, so you can walk past it without digging in the config.
 
 `Camera Tilt` deserves a note. A real Betaflight OSD draws the **craft's** attitude and knows
 nothing about how the camera is angled. Set this to your in-game camera angle and the bar
@@ -195,7 +201,7 @@ flight to see it.
 | `Enable Analog Video` | `false` | The whole feature. |
 | `Signal Range` | `250` | Metres at which the picture is about gone. |
 | `Static Strength` | `0.55` | How heavy the snow gets once the link is lost. |
-| `Base Grain` | `0.05` | Grain that stays even at full signal. |
+| `Base Grain` | `0.02` | Grain that stays even at full signal. |
 | `Scanline Strength` / `Scanline Count` | `0.15` / `240` | Darkness and number of lines across the picture height. |
 | `Vignette Strength` | `0.30` | Corner darkening. |
 | `Obstacles Block Signal` | `true` | Line-of-sight check between you and the drone. |
@@ -224,33 +230,47 @@ The artefacts are drawn **over** the artificial horizon. That is deliberate: a r
 generated at the flight controller, before the transmitter, so it goes through the same link the
 picture does and picks up the same snow.
 
-> What is not possible here: desaturation, chroma smear, tearing, blur. All of those need to read
-> the rendered image back, which needs a custom shader — and a shader cannot be created from
-> inside a plugin. It would have to ship as an AssetBundle built in Liftoff's own Unity version,
-> and break with every engine update. Most of the analog feel turns out to live in the noise and
-> the scanlines anyway.
+### Analog Image
+
+The other half, and the half that needs the rendered image read back: colour, lens shape, blown
+highlights, exposure. Runs through **Liftoff's own copy of the Post Processing Stack v2**, so it
+needs no custom shader and ships no extra files — the game uses the package itself, which means
+its effect shaders are compiled into the build and nothing was stripped.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Enable Image Processing` | `true` | The whole section. Needs `Enable Analog Video` too. |
+| `Saturation` | `-20` | Colour at full signal. Analog is washed out next to a clean render. |
+| `Colour Loss` | `1` | How much colour dies with the signal. |
+| `Contrast` | `10` | Analog is contrastier, and loses the shadows for it. |
+| `Colour Temperature` | `10` | White balance. Cheap cameras run warm. |
+| `Chromatic Aberration` | `0.35` | Colour fringing at edges. |
+| `Lens Distortion` | `-20` | Barrel distortion. Negative bulges outwards. |
+| `Bloom` | `0.8` | How hard bright spots blow out. `0` switches the pass off entirely. |
+| `Auto Exposure` | `true` | Gain hunting for an exposure when you pitch into the sky. |
+
+`Colour Loss` is the one worth understanding. On a real link the chroma subcarrier dies before
+the luma does, so a fading picture goes **black and white while staying perfectly readable**, and
+the colour coming back is how you know you are clear again. Combined with the line-of-sight
+check: behind the building it goes grey first, then to snow.
+
+> Post processing on a headset-resolution camera is not free. If the frame rate halves, turn
+> `Bloom` to `0` first and `Auto Exposure` off second — those are the two that cost real passes,
+> and setting them to zero/false skips the work rather than just hiding the result.
+
+Still out of reach without a custom shader: true composite encoding — dot crawl, sideways chroma
+smear, horizontal tearing, rainbow moiré on fine detail. That would mean an AssetBundle built in
+Liftoff's exact Unity version (2022.3), shipped as a binary and rebuilt whenever the game moves.
 
 ### Goggle Mask *(optional, off)*
 
 A black border restricting the picture to a real goggle's field of view. Default 46° diagonal
-at 4:3 — a Skyzone SKY04O Pro on analog video.
+at 4:3 — a Skyzone SKY04O Pro on analog video. With it on, the analog artefacts are drawn onto
+that window instead of your whole view, so they stop at the border rather than crossing it.
 
 Be clear about what this does: it cuts a hole into a picture still rendered at **headset**
 field of view. You see less of the world, at the same scale. It does not reproduce the way a
 wide angle lens is squeezed onto a small screen.
-
-### FPV Screen *(optional, off — needs `Enable Mask` as well)*
-
-That squeeze, for real. A separate camera renders the world from the drone camera's pose at a
-configurable lens FOV into a 4:3 texture, shown on a flat head-fixed screen at goggle FOV. The
-VR camera then renders nothing but that screen on black.
-
-| Setting | Default | Meaning |
-|---|---|---|
-| `Camera Lens FOV` | `120` | Diagonal FOV of the drone camera. Typical FPV cameras are 120–150. |
-| `Capture Height` | `720` | Render resolution. Analog video is around 480 lines. |
-
-This is the most faithful mode and the one most people turn back off. Worth trying once.
 
 ## Findings
 
@@ -301,6 +321,31 @@ canvases to UUVR's capture camera with `RenderMode.ScreenSpaceCamera`, and when 
 not rendering the menu becomes invisible — on the flat screen too. So the plugin sets it
 itself: `CanvasRedirect` only in a VR flight, `None` everywhere else.
 
+### Check what the game already ships before writing a shader
+
+The first version of the analog look was quads only, on the assumption that anything needing the
+rendered image back would require a custom shader — an AssetBundle, a matching Unity install, a
+binary in the repo. That assumption was wrong, and checking took two minutes:
+
+```
+Liftoff Micro Drones_Data\Managed\Unity.Postprocessing.Runtime.dll     ← present
+Assembly-CSharp.dll references Unity.Postprocessing.Runtime            ← the game uses it
+no URP, no HDRP runtime                                                ← built-in pipeline
+```
+
+The second line is the one that matters. Unity strips shaders nothing references, so a package
+being present is not enough — it has to be *used*. Because Liftoff grades its own image with
+PPv2, every effect shader is compiled into the build, and a plugin can add a volume through
+`PostProcessManager.QuickVolume` and get colour grading, chromatic aberration, lens distortion,
+bloom and auto exposure for free.
+
+Two things to get right when adding a `PostProcessLayer` to a camera yourself:
+
+* `AddComponent` runs `OnEnable` before you can call `Init(resources)`. Toggle `enabled` off and
+  on afterwards so it initialises against the resources instead of against null.
+* Do **not** override `gradingMode`. The game may be grading in HDR with a tonemapper, and
+  forcing LDR throws its whole look away. Saturation, contrast and white balance apply in either.
+
 ### Odds and ends
 
 * UUVR's `Camera Position Offset X` can be written but has no effect;
@@ -326,11 +371,21 @@ itself: `CanvasRedirect` only in a VR flight, `None` everywhere else.
   `Cull Off` anyway.
 * `Sprites/Default` multiplies by the vertex colour, and a mesh with no colour stream can arrive
   as transparent black — an invisible layer with no error anywhere.
+* **Put colour in the mesh, not on the material.** `Hidden/Internal-Colored` — which is what the
+  horizon indicator actually gets in Liftoff — has no `_Color` property at all and returns the
+  vertex colour. Setting `_Color` on it does nothing; the indicator was only white because Unity
+  feeds white for a missing colour stream. `mesh.colors32` works whatever shader you land on.
+* Post processing runs after **everything**, overlay quads included. Bright static crossing the
+  bloom threshold turns the whole picture into grey haze, so the threshold has to sit above 1.
 
 ## Known limitations
 
 * **Tied to UUVR internals.** Several settings are driven through reflection into UUVR's
   `ModConfiguration`. A UUVR update can break this. Tested against 0.4.0.
+* **The analog image needs the game's post processing package.** If Liftoff ever ships without
+  it, that half switches itself off with a warning in the log and the overlay carries on alone.
+* **Both eyes see a stereo image.** Real goggles show one camera to both eyes, so there is no
+  depth — this does not reproduce that. It is more comfortable this way, and less accurate.
 * **Liftoff specific.** Scene names and HUD element names come from this game.
 * **The desktop window is black while VR is on.** That is UUVR. It does not matter in the flow
   above, since you only need the window when VR is off anyway.
@@ -365,8 +420,8 @@ control. With the SDK you get modern C# instead of C# 5.
 | [src/FpvGogglesPlugin.cs](src/FpvGogglesPlugin.cs) | Settings, Harmony patch, key codes |
 | [src/FpvGogglesRunner.cs](src/FpvGogglesRunner.cs) | Everything per frame: VR control, scenes, hotkeys, mask |
 | [src/HorizonIndicator.cs](src/HorizonIndicator.cs) | Artificial horizon |
-| [src/AnalogOverlay.cs](src/AnalogOverlay.cs) | Analog artefacts and the signal model |
-| [src/FpvScreen.cs](src/FpvScreen.cs) | Optional virtual screen |
+| [src/AnalogOverlay.cs](src/AnalogOverlay.cs) | Analog artefacts and the radio link model |
+| [src/AnalogPostFx.cs](src/AnalogPostFx.cs) | Analog colour and lens, through the game's post processing |
 
 One build note worth knowing: the plugin is compiled against the **game's** assemblies
 (.NET Standard 2.1), not the compiler's framework — hence `/nostdlib+` plus Unity's `mscorlib`

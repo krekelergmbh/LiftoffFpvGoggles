@@ -411,13 +411,10 @@ namespace LiftoffFpvGoggles
         {
             // Poll every key each frame, so a key held across a scene change cannot produce
             // a stale edge afterwards.
-            bool toggleTracking = WasPressed(FpvGogglesPlugin.ToggleTrackingKey.Value);
             bool toggleMask = WasPressed(FpvGogglesPlugin.ToggleMaskKey.Value);
             bool toggleAnalog = WasPressed(FpvGogglesPlugin.ToggleAnalogKey.Value);
             bool fovUp = WasPressed(FpvGogglesPlugin.FovUpKey.Value);
             bool fovDown = WasPressed(FpvGogglesPlugin.FovDownKey.Value);
-            bool lensUp = WasPressed(FpvGogglesPlugin.LensFovUpKey.Value);
-            bool lensDown = WasPressed(FpvGogglesPlugin.LensFovDownKey.Value);
             bool uiSmaller = WasPressed(FpvGogglesPlugin.UiSmallerKey.Value);
             bool uiBigger = WasPressed(FpvGogglesPlugin.UiBiggerKey.Value);
             bool hudLeft = WasPressed(FpvGogglesPlugin.UiLeftKey.Value);
@@ -440,21 +437,11 @@ namespace LiftoffFpvGoggles
             {
                 // Goggle mode is paused here, so these would change something you cannot see
                 // and only notice during the next flight.
-                if (toggleTracking || toggleMask || toggleAnalog || fovUp || fovDown || lensUp || lensDown)
+                if (toggleMask || toggleAnalog || fovUp || fovDown)
                 {
                     FpvGogglesPlugin.Log.LogInfo("Goggle hotkey ignored: only works during a flight.");
                 }
                 return;
-            }
-
-            if (toggleTracking)
-            {
-                bool locked = !FpvGogglesPlugin.BaseRotationLocked;
-                FpvGogglesPlugin.SessionRotationLock = locked;
-                FpvGogglesPlugin.SessionPositionLock = locked;
-                ApplyPositionalTracking();
-                FpvGogglesPlugin.Log.LogInfo("Head tracking " +
-                    (locked ? "DISABLED (goggle mode)" : "ENABLED (normal VR)") + " for this session.");
             }
 
             if (toggleMask)
@@ -473,11 +460,24 @@ namespace LiftoffFpvGoggles
 
             if (fovUp) StepFov(FpvGogglesPlugin.FovStep.Value);
             if (fovDown) StepFov(-FpvGogglesPlugin.FovStep.Value);
-            if (lensUp) StepLensFov(FpvGogglesPlugin.FovStep.Value);
-            if (lensDown) StepLensFov(-FpvGogglesPlugin.FovStep.Value);
 
             if (WasPressed(FpvGogglesPlugin.HorizonBiggerKey.Value)) StepHorizonScale(0.1f);
             if (WasPressed(FpvGogglesPlugin.HorizonSmallerKey.Value)) StepHorizonScale(-0.1f);
+            if (WasPressed(FpvGogglesPlugin.HorizonColourKey.Value)) CycleHorizonColour();
+        }
+
+        /// <summary>
+        /// Which colour reads well is decided by the map, not by the pilot, so this is a knob
+        /// you reach for mid-flight. Written to the config file rather than kept for the
+        /// session: it is a preference, not a comparison.
+        /// </summary>
+        private static void CycleHorizonColour()
+        {
+            int count = Enum.GetValues(typeof(IndicatorColour)).Length;
+            int next = ((int)FpvGogglesPlugin.HorizonColour.Value + 1) % count;
+
+            FpvGogglesPlugin.HorizonColour.Value = (IndicatorColour)next;
+            FpvGogglesPlugin.Log.LogInfo("Horizon colour: " + FpvGogglesPlugin.HorizonColour.Value);
         }
 
         private static void StepHorizonScale(float delta)
@@ -506,13 +506,6 @@ namespace LiftoffFpvGoggles
             float value = Mathf.Clamp(FpvGogglesPlugin.MaskFovDiagonal.Value + delta, 10f, 160f);
             FpvGogglesPlugin.MaskFovDiagonal.Value = value;
             FpvGogglesPlugin.Log.LogInfo("Goggle FOV: " + value.ToString("0.#") + " deg");
-        }
-
-        private static void StepLensFov(float delta)
-        {
-            float value = Mathf.Clamp(FpvGogglesPlugin.LensFovDiagonal.Value + delta, 30f, 175f);
-            FpvGogglesPlugin.LensFovDiagonal.Value = value;
-            FpvGogglesPlugin.Log.LogInfo("Drone lens FOV: " + value.ToString("0.#") + " deg");
         }
 
         // ------------------------------------------------------------------
@@ -637,7 +630,6 @@ namespace LiftoffFpvGoggles
 
             if (!wantMask && !wantHorizon && !wantAnalog)
             {
-                FpvScreen.Teardown();
                 HorizonIndicator.Teardown();
                 AnalogOverlay.Teardown();
                 if (_maskObject != null && _maskObject.activeSelf) _maskObject.SetActive(false);
@@ -681,27 +673,23 @@ namespace LiftoffFpvGoggles
             // Drawn last of the three, and on purpose: on real hardware the OSD is generated at
             // the drone, so the horizon above goes through the radio link along with the picture
             // and picks up the same snow.
-            if (wantAnalog) AnalogOverlay.Update(_maskCamera, halfWidth, halfHeight, distance, wantMask);
-            else AnalogOverlay.Teardown();
+            if (wantAnalog)
+            {
+                AnalogOverlay.Update(_maskCamera, halfWidth, halfHeight, distance, wantMask);
+                UpdatePostFx(_maskCamera);
+            }
+            else
+            {
+                AnalogOverlay.Teardown();
+                UpdatePostFx(null);
+            }
 
             if (!wantMask)
             {
-                FpvScreen.Teardown();
                 if (_maskObject != null && _maskObject.activeSelf) _maskObject.SetActive(false);
                 return;
             }
 
-            // Two ways to get a goggle-sized picture. The virtual screen is the honest one: it
-            // re-renders the world at the drone's lens FOV and shrinks it onto a screen. The
-            // mask only cuts a hole in a picture still drawn at headset FOV.
-            if (FpvGogglesPlugin.VirtualScreen.Value)
-            {
-                if (_maskObject != null && _maskObject.activeSelf) _maskObject.SetActive(false);
-                FpvScreen.Update(_maskCamera, halfWidth, halfHeight, distance);
-                return;
-            }
-
-            FpvScreen.Teardown();
             if (_maskObject == null) return;
 
             if (MaskSettingsChanged())
@@ -711,6 +699,31 @@ namespace LiftoffFpvGoggles
             }
 
             if (!_maskObject.activeSelf) _maskObject.SetActive(true);
+        }
+
+        private static bool _postFxBroken;
+
+        /// <summary>
+        /// Kept behind a guard because it is the one part of this plugin that depends on a
+        /// package rather than on the engine. If Liftoff ever ships without the Post Processing
+        /// Stack, loading AnalogPostFx throws here instead of taking the whole update loop with
+        /// it, and everything else carries on.
+        /// </summary>
+        private static void UpdatePostFx(Camera camera)
+        {
+            if (_postFxBroken) return;
+
+            try
+            {
+                if (camera == null) AnalogPostFx.Teardown();
+                else AnalogPostFx.Update(camera, AnalogOverlay.Signal);
+            }
+            catch (Exception e)
+            {
+                _postFxBroken = true;
+                FpvGogglesPlugin.Log.LogWarning(
+                    "Image processing is unavailable, carrying on with the overlay only: " + e.Message);
+            }
         }
 
         /// <summary>
@@ -797,8 +810,8 @@ namespace LiftoffFpvGoggles
         }
 
         /// <summary>
-        /// Size of the goggle window on a plane at the configured distance. Shared by the mask
-        /// and the virtual screen, so the screen always lands exactly in the hole.
+        /// Size of the goggle window on a plane at the configured distance. Also what the analog
+        /// layers use as the picture area whenever the mask is on.
         /// </summary>
         private static void ComputeAperture(out float halfWidth, out float halfHeight, out float distance)
         {

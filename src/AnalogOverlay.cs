@@ -50,6 +50,9 @@ namespace LiftoffFpvGoggles
         /// <summary>Smoothed link quality, 1 = clean picture, 0 = nothing left.</summary>
         private static float _signal = 1f;
 
+        /// <summary>Read by the image processing, which fades the colour out along with it.</summary>
+        internal static float Signal { get { return _signal; } }
+
         private static bool _blocked;
         private static float _obstacleTimer;
         private static float _burstTimer, _burstLeft, _burstFrom;
