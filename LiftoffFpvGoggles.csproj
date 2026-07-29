@@ -69,6 +69,11 @@
       <HintPath>$(GameManaged)\UnityEngine.VRModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Line of sight check for the analog signal model. -->
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameManaged)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

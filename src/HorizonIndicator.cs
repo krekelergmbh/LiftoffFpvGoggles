@@ -200,6 +200,11 @@ namespace LiftoffFpvGoggles
                 shader = Shader.Find(candidates[i]);
                 if (shader != null) break;
             }
+
+            // Logged because the choice decides whether the depth test can be overridden at all.
+            // Unlit/Color has no handle for it, Hidden/Internal-Colored does - and an indicator
+            // that vanishes behind a close gate would be blamed on anything but the shader.
+            if (shader != null) FpvGogglesPlugin.Log.LogInfo("Horizon using shader '" + shader.name + "'.");
             if (shader == null)
             {
                 Material canvasMaterial = Canvas.GetDefaultCanvasMaterial();

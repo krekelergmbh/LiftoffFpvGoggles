@@ -319,6 +319,10 @@ namespace LiftoffFpvGoggles
             FpvGogglesPlugin.Log.LogInfo("Scene '" + sceneName + "' -> " +
                 (FpvGogglesPlugin.InMenu ? "menu" : "flight"));
 
+            // The pilot stands wherever the next flight spawns its drone, not wherever the last
+            // one happened to end.
+            AnalogOverlay.ResetHome();
+
             if (wasInMenu != FpvGogglesPlugin.InMenu) ApplyPositionalTracking();
         }
 
@@ -409,6 +413,7 @@ namespace LiftoffFpvGoggles
             // a stale edge afterwards.
             bool toggleTracking = WasPressed(FpvGogglesPlugin.ToggleTrackingKey.Value);
             bool toggleMask = WasPressed(FpvGogglesPlugin.ToggleMaskKey.Value);
+            bool toggleAnalog = WasPressed(FpvGogglesPlugin.ToggleAnalogKey.Value);
             bool fovUp = WasPressed(FpvGogglesPlugin.FovUpKey.Value);
             bool fovDown = WasPressed(FpvGogglesPlugin.FovDownKey.Value);
             bool lensUp = WasPressed(FpvGogglesPlugin.LensFovUpKey.Value);
@@ -435,7 +440,7 @@ namespace LiftoffFpvGoggles
             {
                 // Goggle mode is paused here, so these would change something you cannot see
                 // and only notice during the next flight.
-                if (toggleTracking || toggleMask || fovUp || fovDown || lensUp || lensDown)
+                if (toggleTracking || toggleMask || toggleAnalog || fovUp || fovDown || lensUp || lensDown)
                 {
                     FpvGogglesPlugin.Log.LogInfo("Goggle hotkey ignored: only works during a flight.");
                 }
@@ -457,6 +462,13 @@ namespace LiftoffFpvGoggles
                 bool enabled = !FpvGogglesPlugin.BaseMaskEnabled;
                 FpvGogglesPlugin.SessionMask = enabled;
                 FpvGogglesPlugin.Log.LogInfo("Goggle rendering " + (enabled ? "ON" : "OFF") + " for this session.");
+            }
+
+            if (toggleAnalog)
+            {
+                bool enabled = !FpvGogglesPlugin.BaseAnalogEnabled;
+                FpvGogglesPlugin.SessionAnalog = enabled;
+                FpvGogglesPlugin.Log.LogInfo("Analog video " + (enabled ? "ON" : "OFF") + " for this session.");
             }
 
             if (fovUp) StepFov(FpvGogglesPlugin.FovStep.Value);
@@ -621,11 +633,13 @@ namespace LiftoffFpvGoggles
         {
             bool wantMask = FpvGogglesPlugin.GoggleRenderingActive;
             bool wantHorizon = FpvGogglesPlugin.HorizonActive;
+            bool wantAnalog = FpvGogglesPlugin.AnalogActive;
 
-            if (!wantMask && !wantHorizon)
+            if (!wantMask && !wantHorizon && !wantAnalog)
             {
                 FpvScreen.Teardown();
                 HorizonIndicator.Teardown();
+                AnalogOverlay.Teardown();
                 if (_maskObject != null && _maskObject.activeSelf) _maskObject.SetActive(false);
                 return;
             }
@@ -663,6 +677,12 @@ namespace LiftoffFpvGoggles
             // The horizon is an OSD element and runs whether or not the goggle frame is on.
             if (wantHorizon) HorizonIndicator.Update(_maskCamera, halfWidth, halfHeight, distance);
             else HorizonIndicator.Teardown();
+
+            // Drawn last of the three, and on purpose: on real hardware the OSD is generated at
+            // the drone, so the horizon above goes through the radio link along with the picture
+            // and picks up the same snow.
+            if (wantAnalog) AnalogOverlay.Update(_maskCamera, halfWidth, halfHeight, distance, wantMask);
+            else AnalogOverlay.Teardown();
 
             if (!wantMask)
             {

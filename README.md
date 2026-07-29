@@ -39,6 +39,9 @@ lens shape is visible — in the headset it fills your view.*
 
 Optional, off by default:
 
+* **Analog video** — vignette, static and scanlines over the picture, with the amount of snow
+  driven by how far away you are, whether anything is in the way, and where the antenna is
+  pointing. See [Analog Video](#analog-video-optional-off).
 * **Goggle mask** — a black border cutting the picture down to a real goggle's field of view.
 * **Virtual screen** — renders the drone camera at a real lens FOV (120°+) onto a small flat
   screen, so a wide angle image is squeezed onto a goggle-sized display. The most faithful
@@ -118,11 +121,13 @@ once — `F4`, `F5`, `F11` and `F12` toggle Liftoff's HUD and are deliberately l
 | `Home` / `End` | Move HUD left / right |
 | `Page Up` / `Page Down` | Move HUD up / down |
 | `Insert` / `Delete` | Horizon indicator larger / smaller |
+| `F6` | Analog video on/off |
 | `F9` | Head tracking on/off, for comparison |
 | `F10` | Goggle mask / virtual screen on/off |
 
-`F9` and `F10` apply to the running session only and are never written to the config file — a
-quick A/B comparison during one flight should not silently become the permanent setting.
+`F6`, `F9` and `F10` apply to the running session only and are never written to the config
+file — a quick A/B comparison during one flight should not silently become the permanent
+setting. `F6` is also the quickest way to try the analog look without editing anything.
 
 All goggle keys are ignored in menus, where you could not see their effect anyway.
 
@@ -178,6 +183,52 @@ Useful names in Liftoff: `Center` (the crosshair), `ArmedDisplay` (crosshair plu
 nothing about how the camera is angled. Set this to your in-game camera angle and the bar
 behaves the same way: centred when the drone is level, and therefore *not* sitting on the
 visible horizon. Leave it at `0` if you would rather have it line up with what you see.
+
+### Analog Video *(optional, off)*
+
+Three layers over the picture, in the order a real signal picks them up: the **lens** vignettes,
+the **radio link** adds snow, the **goggle screen** draws it all as scanlines. Press `F6` in a
+flight to see it.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Enable Analog Video` | `false` | The whole feature. |
+| `Signal Range` | `250` | Metres at which the picture is about gone. |
+| `Static Strength` | `0.55` | How heavy the snow gets once the link is lost. |
+| `Base Grain` | `0.05` | Grain that stays even at full signal. |
+| `Scanline Strength` / `Scanline Count` | `0.15` / `240` | Darkness and number of lines across the picture height. |
+| `Vignette Strength` | `0.30` | Corner darkening. |
+| `Obstacles Block Signal` | `true` | Line-of-sight check between you and the drone. |
+| `Antenna Null` | `true` | Dipole null: a level drone directly overhead is the worst spot. |
+| `Signal Breakup` | `true` | Short bursts with a rolling sync bar. |
+| `Log Signal` | `false` | Link quality and distance to the log every two seconds. |
+
+The point is not the effect but **when** it happens. Static that flickers at random is seen
+through in two minutes; static that arrives because you went behind a building is the thing you
+actually recognise from flying. The pilot's position is taken from where the drone spawns, and
+the model combines three things:
+
+* **Distance.** Clean out to about a third of `Signal Range`, then falling away — analog degrades
+  rather than cutting out, which is why people still fly it.
+* **Line of sight.** A `Physics.Linecast` from head height to the drone, ten times a second.
+  Blocked costs most of the picture, and it comes back slower than it went.
+* **Antenna orientation.** A dipole radiates nothing along its own axis, so a level drone
+  directly above you sits in the null. Weighted by distance, because close in there is signal to
+  spare.
+
+`Signal Range` is the one worth tuning. `250` is a middle-of-the-road setup; a 25 mW whoop on
+its stock antenna behaves more like `120`, a decent 400 mW setup several times that. Turn on
+`Log Signal`, fly out, and set it to whatever matches your own gear.
+
+The artefacts are drawn **over** the artificial horizon. That is deliberate: a real OSD is
+generated at the flight controller, before the transmitter, so it goes through the same link the
+picture does and picks up the same snow.
+
+> What is not possible here: desaturation, chroma smear, tearing, blur. All of those need to read
+> the rendered image back, which needs a custom shader — and a shader cannot be created from
+> inside a plugin. It would have to ship as an AssetBundle built in Liftoff's own Unity version,
+> and break with every engine update. Most of the analog feel turns out to live in the noise and
+> the scanlines anyway.
 
 ### Goggle Mask *(optional, off)*
 
@@ -259,6 +310,22 @@ itself: `CanvasRedirect` only in a VR flight, `None` everywhere else.
   captures it because it copies the screen; `CanvasRedirect` does not, because a software
   cursor is not a canvas.
 * Liftoff uses Rewired, so `UnityEngine.Input` is not an option for hotkeys.
+* **Not every shader can be told to ignore depth.** `Sprites/Default` looks like the obvious
+  choice for a transparent overlay and has no depth control whatsoever: no `_ZTest` property,
+  and it does not read `unity_GUIZTestMode` either. Setting both is silently ignored, and the
+  result is an overlay that appears on distant scenery only, hidden behind anything nearer than
+  its own plane. `UI/Default` declares `ZTest [unity_GUIZTestMode]`, and
+  `Hidden/Internal-Colored` has a real `_ZTest` — those are the two worth reaching for. Both are
+  in any build with a uGUI canvas, and `Canvas.GetDefaultCanvasMaterial()` is a guaranteed way
+  to `UI/Default`.
+* Moving the quad to just in front of the near clip plane would dodge the depth test as well,
+  and is the wrong fix in VR: at a few centimetres the two eyes can no longer fuse it.
+* Overlay quads here are wound **one way only**, unlike the mask. Winding both ways to defeat
+  backface culling is harmless on an opaque mesh and doubles the strength of a transparent one,
+  because the second pass blends on top of the first. `Sprites/Default` and `UI/Default` are
+  `Cull Off` anyway.
+* `Sprites/Default` multiplies by the vertex colour, and a mesh with no colour stream can arrive
+  as transparent black — an invisible layer with no error anywhere.
 
 ## Known limitations
 
@@ -298,6 +365,7 @@ control. With the SDK you get modern C# instead of C# 5.
 | [src/FpvGogglesPlugin.cs](src/FpvGogglesPlugin.cs) | Settings, Harmony patch, key codes |
 | [src/FpvGogglesRunner.cs](src/FpvGogglesRunner.cs) | Everything per frame: VR control, scenes, hotkeys, mask |
 | [src/HorizonIndicator.cs](src/HorizonIndicator.cs) | Artificial horizon |
+| [src/AnalogOverlay.cs](src/AnalogOverlay.cs) | Analog artefacts and the signal model |
 | [src/FpvScreen.cs](src/FpvScreen.cs) | Optional virtual screen |
 
 One build note worth knowing: the plugin is compiled against the **game's** assemblies

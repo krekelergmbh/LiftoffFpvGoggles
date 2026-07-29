@@ -30,7 +30,7 @@ namespace LiftoffFpvGoggles
         NumPadMultiply = 0x6A, NumPadPlus = 0x6B, NumPadMinus = 0x6D, NumPadDivide = 0x6F,
     }
 
-    [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.7.0")]
+    [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.8.0")]
     [BepInDependency("raicuparta.uuvr-modern", BepInDependency.DependencyFlags.HardDependency)]
     public class FpvGogglesPlugin : BaseUnityPlugin
     {
@@ -84,6 +84,20 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<HotKey> HorizonBiggerKey;
         internal static ConfigEntry<HotKey> HorizonSmallerKey;
 
+        // --- Analog video ---
+        internal static ConfigEntry<bool> AnalogEnabled;
+        internal static ConfigEntry<HotKey> ToggleAnalogKey;
+        internal static ConfigEntry<float> StaticStrength;
+        internal static ConfigEntry<float> BaseGrain;
+        internal static ConfigEntry<float> ScanlineStrength;
+        internal static ConfigEntry<int> ScanlineCount;
+        internal static ConfigEntry<float> VignetteStrength;
+        internal static ConfigEntry<float> SignalRange;
+        internal static ConfigEntry<bool> ObstaclesBlock;
+        internal static ConfigEntry<bool> AntennaNull;
+        internal static ConfigEntry<bool> Breakup;
+        internal static ConfigEntry<bool> LogSignal;
+
         // --- Optional: full simulation ---
         internal static ConfigEntry<bool> VirtualScreen;
         internal static ConfigEntry<float> LensFovDiagonal;
@@ -109,6 +123,7 @@ namespace LiftoffFpvGoggles
         internal static bool? SessionRotationLock;
         internal static bool? SessionPositionLock;
         internal static bool? SessionMask;
+        internal static bool? SessionAnalog;
 
         internal static bool BaseRotationLocked
         {
@@ -123,6 +138,11 @@ namespace LiftoffFpvGoggles
         internal static bool BaseMaskEnabled
         {
             get { return SessionMask.HasValue ? SessionMask.Value : (MaskEnabled != null && MaskEnabled.Value); }
+        }
+
+        internal static bool BaseAnalogEnabled
+        {
+            get { return SessionAnalog.HasValue ? SessionAnalog.Value : (AnalogEnabled != null && AnalogEnabled.Value); }
         }
 
         internal static bool HeadRotationLocked { get { return BaseRotationLocked && !InMenu; } }
@@ -146,6 +166,15 @@ namespace LiftoffFpvGoggles
         internal static bool HorizonActive
         {
             get { return HorizonEnabled != null && HorizonEnabled.Value && !InMenu && VrActive; }
+        }
+
+        /// <summary>
+        /// Also independent of the mask: the artefacts land on whatever counts as the picture,
+        /// which is the mask aperture when there is one and your whole view when there is not.
+        /// </summary>
+        internal static bool AnalogActive
+        {
+            get { return BaseAnalogEnabled && !InMenu && VrActive; }
         }
 
         private void Awake()
@@ -303,6 +332,71 @@ namespace LiftoffFpvGoggles
 
             HorizonBiggerKey = Config.Bind("Horizon", "Grow Key", HotKey.Insert, "Makes the horizon indicator bigger.");
             HorizonSmallerKey = Config.Bind("Horizon", "Shrink Key", HotKey.Delete, "Makes the horizon indicator smaller.");
+
+            // ---------------- Analog video ----------------
+
+            // What is drawn here are flat quads laid over the picture. That rules out anything
+            // which has to read the rendered image back - desaturation, chroma smear, tearing -
+            // because those need a custom shader, and a shader cannot be created from inside a
+            // plugin. It would have to be shipped as an AssetBundle built in Liftoff's own Unity
+            // version, and would break every time that version moves.
+            AnalogEnabled = Config.Bind(
+                "Analog Video", "Enable Analog Video", false,
+                "Lays the artefacts of an analog video link over the picture: lens vignette, RF static, and the scanlines of the goggle screen. How much static you get depends on where you are flying - see 'Signal Range' below.");
+
+            // F6 because the neighbours are taken: Liftoff toggles its own HUD on F4, F5, F11
+            // and F12, Steam grabs F12 for screenshots, and F7 to F10 are ours already.
+            ToggleAnalogKey = Config.Bind(
+                "Analog Video", "Toggle Key", HotKey.F6,
+                "Switches the analog look on and off during a flight, so you can compare. Session only, never written to this file.");
+
+            StaticStrength = Config.Bind(
+                "Analog Video", "Static Strength", 0.55f,
+                new ConfigDescription("How much snow there is once the link is gone. Lower this first if it gets in the way of actually flying.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            BaseGrain = Config.Bind(
+                "Analog Video", "Base Grain", 0.05f,
+                new ConfigDescription("Grain that stays on the picture even at full signal. Analog is never completely clean, and a picture without it looks digital.",
+                    new AcceptableValueRange<float>(0f, 0.5f)));
+
+            ScanlineStrength = Config.Bind(
+                "Analog Video", "Scanline Strength", 0.15f,
+                new ConfigDescription("Darkness of the scanlines. Above about 0.3 it starts to cost you real detail.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            ScanlineCount = Config.Bind(
+                "Analog Video", "Scanline Count", 240,
+                new ConfigDescription("Lines across the height of the picture. Analog video is around 480 lines, of which you see roughly half as dark ones.",
+                    new AcceptableValueRange<int>(40, 600)));
+
+            VignetteStrength = Config.Bind(
+                "Analog Video", "Vignette Strength", 0.30f,
+                new ConfigDescription("Darkening towards the corners, the way a small FPV lens does it.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            // Measured from where the drone spawns, which is close enough to where you would be
+            // standing. Turn on 'Log Signal' and fly out until it looks the way yours does.
+            SignalRange = Config.Bind(
+                "Analog Video", "Signal Range", 250f,
+                new ConfigDescription("Distance in metres at which the picture is about gone. The default is a middle of the road setup; a 25 mW whoop on its stock antenna is more like 120, a decent 400 mW setup several times that.",
+                    new AcceptableValueRange<float>(20f, 3000f)));
+
+            ObstaclesBlock = Config.Bind(
+                "Analog Video", "Obstacles Block Signal", true,
+                "Checks the line between you and the drone. Going behind a building costs you the picture, which is the single most recognisable thing about flying analog.");
+
+            AntennaNull = Config.Bind(
+                "Analog Video", "Antenna Null", true,
+                "A dipole radiates nothing along its own axis, so a level drone directly above you is in the worst possible spot. Only noticeable at distance, as on real hardware.");
+
+            Breakup = Config.Bind(
+                "Analog Video", "Signal Breakup", true,
+                "Short bursts where the picture tears up completely, with a sync bar rolling through. A steady amount of snow reads as a filter; the breakup is what reads as radio.");
+
+            LogSignal = Config.Bind(
+                "Analog Video", "Log Signal", false,
+                "Writes link quality and distance to the BepInEx log every two seconds. Use it to set 'Signal Range' to something that matches your own gear.");
 
             // ---------------- Optional: full simulation ----------------
 

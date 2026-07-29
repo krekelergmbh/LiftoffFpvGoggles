@@ -81,7 +81,8 @@ $refs = @(
     "$managed\UnityEngine.CoreModule.dll",
     "$managed\UnityEngine.UIModule.dll",
     "$managed\UnityEngine.XRModule.dll",
-    "$managed\UnityEngine.VRModule.dll"   # XRSettings lives here, not in XRModule
+    "$managed\UnityEngine.VRModule.dll",  # XRSettings lives here, not in XRModule
+    "$managed\UnityEngine.PhysicsModule.dll"  # line of sight check for the analog signal model
 )
 
 if ($BepInExDir) {
