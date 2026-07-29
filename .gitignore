@@ -10,6 +10,9 @@ Local.props
 # Copy-and-paste texts for publishing, not part of the mod
 PUBLISHING.md
 
+# Raw screenshots; the cropped versions used by the README live in docs/
+Screenshot*.png
+
 # Editors
 .vs/
 .idea/

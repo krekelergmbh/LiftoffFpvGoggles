@@ -5,6 +5,12 @@ Turn a VR headset into a pair of FPV goggles for **Liftoff: Micro Drones**.
 A BepInEx plugin that sits alongside [UUVR](https://github.com/Raicuparta/uuvr). UUVR gets the
 game into a headset; this plugin makes it behave like goggles rather than like VR.
 
+![In flight](docs/in-flight.jpg)
+
+*Mid-flight, seen through the headset. Speed and altitude sit on their own resizable plane, and
+the artificial horizon is the short bar above centre with the fixed mark below it — the drone
+is banked slightly left. Turning your head changes none of this.*
+
 ## Why
 
 In VR, the game camera follows your head. Real FPV goggles do not: they are a screen strapped
@@ -25,6 +31,11 @@ on the field, and it quietly makes the sim easier than the thing it is simulatin
   compensation for the FPV camera's upward tilt — the way a real OSD behaves.
 * **Hide HUD elements.** Drop the crosshair, the stick indicators, the recording icon, or the
   entire HUD, by name.
+
+![On the ground](docs/on-the-ground.jpg)
+
+*Waiting on the ground. Both shots are single-eye SteamVR mirror captures, which is why the
+lens shape is visible — in the headset it fills your view.*
 
 Optional, off by default:
 
