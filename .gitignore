@@ -1,0 +1,14 @@
+# Build output
+build/
+dist/
+bin/
+obj/
+
+# Machine-specific paths written by build.ps1
+Local.props
+
+# Editors
+.vs/
+.idea/
+*.user
+*.suo

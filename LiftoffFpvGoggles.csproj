@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    For IntelliSense and "dotnet build". Building with build.ps1 needs no .NET SDK at all.
+
+    Machine specific paths are NOT stored here. Run build.ps1 once - it detects the game and
+    BepInEx folders and writes them to Local.props, which is gitignored and imported below.
+    You can also write Local.props by hand:
+
+      <Project>
+        <PropertyGroup>
+          <GameManaged>D:\...\Liftoff Micro Drones_Data\Managed</GameManaged>
+          <BepInExDir>C:\...\bepinex\BepInEx</BepInExDir>
+        </PropertyGroup>
+      </Project>
+  -->
+  <Import Project="Local.props" Condition="Exists('Local.props')" />
+
+  <PropertyGroup>
+    <!-- The profile Unity 2022.3 builds the game with, so the types line up directly. -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>LiftoffFpvGoggles</AssemblyName>
+    <RootNamespace>LiftoffFpvGoggles</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Version>4.7.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- BepInEx and Harmony target older profiles; their mscorlib references are harmless. -->
+    <NoWarn>$(NoWarn);CS1701;CS1702</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="src\**\*.cs" />
+  </ItemGroup>
+
+  <Target Name="WarnAboutLocalProps" BeforeTargets="BeforeBuild"
+          Condition="'$(GameManaged)' == '' Or '$(BepInExDir)' == ''">
+    <Error Text="GameManaged and BepInExDir are not set. Run .\build.ps1 once to generate Local.props, or create it by hand (see the comment in this file)." />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExDir)\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExDir)\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(GameManaged)\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.XRModule">
+      <HintPath>$(GameManaged)\UnityEngine.XRModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- XRSettings lives here, not in XRModule. -->
+    <Reference Include="UnityEngine.VRModule">
+      <HintPath>$(GameManaged)\UnityEngine.VRModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
