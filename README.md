@@ -38,9 +38,16 @@ on the field, and it quietly makes the sim easier than the thing it is simulatin
 *Waiting on the ground. Both shots are single-eye SteamVR mirror captures, which is why the
 lens shape is visible — in the headset it fills your view.*
 
-* **Analog video.** The picture arrives the way one does over a real radio link: it vignettes,
-  it picks up snow, it loses its colour before it loses the picture, and going behind a building
-  costs you all of it. See [Analog Video](#analog-video-optional-off).
+* **Real composite video.** The picture is encoded into an analog signal, spoiled, and decoded
+  again — so dot crawl, rainbow patterns on fine detail, sideways colour smear and colour dying
+  before the picture does are not drawn on, they are what is left over. See
+  [Composite Video](#composite-video).
+* **A radio link that behaves like one.** Snow rises with distance, going behind a building
+  costs you the picture, and a level drone directly overhead sits in the antenna's null. See
+  [Analog Video](#analog-video-optional-off).
+* **Camera and lens.** Washed-out colour, chroma fringing, barrel distortion, blown highlights
+  and gain hunting for an exposure, through the game's own post processing. See
+  [Analog Image](#analog-image).
 
 Optional, off by default:
 
@@ -226,9 +233,47 @@ the model combines three things:
 its stock antenna behaves more like `120`, a decent 400 mW setup several times that. Turn on
 `Log Signal`, fly out, and set it to whatever matches your own gear.
 
-The artefacts are drawn **over** the artificial horizon. That is deliberate: a real OSD is
-generated at the flight controller, before the transmitter, so it goes through the same link the
-picture does and picks up the same snow.
+With composite video on, the static and the scanlines drawn here switch themselves off. They
+were standing in for a signal; once there is a real one being decoded, laying a second set of
+artefacts over the first only buries them.
+
+### Composite Video
+
+The picture is encoded into a single analog signal — brightness with the colour riding on a
+subcarrier — noise is mixed into **that**, and it is decoded again. Dot crawl, rainbow patterns
+on fine detail, sideways colour smear and colour dying before the picture does are written
+nowhere in the shader. They fall out of doing the real thing badly, which is what the hardware
+does too.
+
+This is the one part that ships a compiled shader, in `fpvanalog` next to the plugin DLL.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Enable Composite Video` | `true` | The whole section. Off gives you the 4.8 look. |
+| `Signal Lines` | `1000` | Lines in the emulated signal, and the resolution the decode runs at. |
+| `Subcarrier Frequency` | `227.5` | Cycles per line — how fine the artefacts are. The real NTSC figure. |
+| `Signal Noise` | `0.18` | Noise mixed into the signal once the link is gone. |
+| `Line Jitter` | `0.004` | How far lines slide sideways on a bad signal, as a fraction of the width. |
+| `Chroma Bleed` | `0.8` | How much wider the colour smears than the brightness. |
+| `Chroma Gain` | `1` | Gain on the decoded colour. |
+| `Softness` | `0` | How much brightness detail is given up. 0 is as sharp as it gets. |
+| `Affects HUD` | `false` | On, the HUD and horizon go through the link too. |
+
+**`Signal Lines` is not 480, and that is deliberate.** Analog video has 480 lines, but they fill
+a 46° goggle — about ten lines per degree. A headset spreads the picture over roughly a hundred
+degrees, so the same 480 lines look half as sharp as the real thing. A thousand matches the
+angular sharpness. Switch the goggle mask on and 480 becomes correct again, because then the
+picture really does only fill 46°.
+
+It is also the frame rate knob: the decode runs at this resolution rather than the headset's, so
+lowering it is the first thing to try if the frame rate suffers.
+
+> Two things that had to be got right in the shader, in case anyone builds on it. The colour is
+> **band-limited before it is modulated**, as a real encoder does — skip that and full-detail
+> colour lands back in the brightness one subcarrier period away when it is decoded, which shows
+> as every edge being doubled. And the brightness is recovered by **subtracting the decoded
+> colour from the untouched signal**, not by averaging the signal: averaging is a twelve-pixel
+> blur, and subtraction is both sharper and what leaves the dot crawl exactly where it belongs.
 
 ### Analog Image
 
@@ -246,21 +291,23 @@ its effect shaders are compiled into the build and nothing was stripped.
 | `Colour Temperature` | `10` | White balance. Cheap cameras run warm. |
 | `Chromatic Aberration` | `0.35` | Colour fringing at edges. |
 | `Lens Distortion` | `-20` | Barrel distortion. Negative bulges outwards. |
-| `Bloom` | `0.8` | How hard bright spots blow out. `0` switches the pass off entirely. |
+| `Bloom` | `0.45` | How hard bright spots blow out. `0` switches the pass off entirely. |
 | `Auto Exposure` | `true` | Gain hunting for an exposure when you pitch into the sky. |
 
-`Colour Loss` is the one worth understanding. On a real link the chroma subcarrier dies before
-the luma does, so a fading picture goes **black and white while staying perfectly readable**, and
-the colour coming back is how you know you are clear again. Combined with the line-of-sight
-check: behind the building it goes grey first, then to snow.
+There is a clean split between this section and the two above it: **everything that models the
+radio link is done for real by the composite pass, everything that models the camera and the lens
+lives here.** Where they overlap, the composite pass wins and the stand-in switches itself off —
+`Colour Loss` and `Chromatic Aberration` do nothing while it is running, because losing the
+colour and smearing it are things a real decoder already does.
 
-> Post processing on a headset-resolution camera is not free. If the frame rate halves, turn
-> `Bloom` to `0` first and `Auto Exposure` off second — those are the two that cost real passes,
-> and setting them to zero/false skips the work rather than just hiding the result.
+`Colour Loss` still matters with composite video off. On a real link the chroma subcarrier dies
+before the luma does, so a fading picture goes **black and white while staying perfectly
+readable**, and the colour coming back is how you know you are clear again.
 
-Still out of reach without a custom shader: true composite encoding — dot crawl, sideways chroma
-smear, horizontal tearing, rainbow moiré on fine detail. That would mean an AssetBundle built in
-Liftoff's exact Unity version (2022.3), shipped as a binary and rebuilt whenever the game moves.
+> Post processing on a headset-resolution camera is not free, and the composite pass runs before
+> it — its noise goes through the bloom as well, which on a bright sky washes the whole picture
+> out. `Bloom` is kept low for that reason. If the frame rate suffers: `Signal Lines` down first,
+> `Bloom` to `0` second, `Auto Exposure` off third.
 
 ### Goggle Mask *(optional, off)*
 
@@ -346,6 +393,29 @@ Two things to get right when adding a `PostProcessLayer` to a camera yourself:
 * Do **not** override `gradingMode`. The game may be grading in HDR with a tonemapper, and
   forcing LDR throws its whole look away. Saturation, contrast and white balance apply in either.
 
+### A custom shader is a real option, and the plumbing is the easy part
+
+`fpvanalog` is built from [unity/](unity/) by [build-bundle.ps1](build-bundle.ps1), which drives
+Unity in batch mode. It is committed, so a normal `build.ps1` needs no Unity at all. Notes:
+
+* **Match the game's Unity version.** Liftoff is on 2022.3.62f3 — the exact version is in
+  `<game>_Data/globalgamemanagers` as plain text near the start. Building the bundle with an
+  older 2022.3 patch is safe; building with a newer one is the direction that breaks.
+* **Unity Personal is free but must be activated**, and the editor refuses to start in batch mode
+  until it is. Installing the editor without Unity Hub leaves it unlicensed and the only symptom
+  is `No valid Unity Editor license found`.
+* **A shader that fails to compile still gets packed**, and the bundle still builds, and the mod
+  then loads a shader that draws nothing. `ShaderUtilities.ShaderHasError` in the build script is
+  the difference between finding that out now and finding it out in the headset.
+* **`line` is a reserved word in HLSL**, and the error it produces points at the line after the
+  one that is wrong.
+
+Plugging the effect into the stack is reflection into PPv2, not a render hook: a settings class
+with `[PostProcess(typeof(Renderer), PostProcessEvent.…)]` plus a nudge to re-scan the assemblies,
+because the stack looks for effect types exactly once and BepInEx may well have loaded after it.
+The stage is baked into that attribute, so covering both "before transparent" and "after
+everything" takes two types rather than one setting.
+
 ### Odds and ends
 
 * UUVR's `Camera Position Offset X` can be written but has no effect;
@@ -353,7 +423,9 @@ Two things to get right when adding a `PostProcessLayer` to a camera yourself:
   did not visibly help either, so shifting the whole view was dropped.
 * UUVR forces a software cursor (`Cursor.SetCursor(..., CursorMode.ForceSoftware)`). `Mirror`
   captures it because it copies the screen; `CanvasRedirect` does not, because a software
-  cursor is not a canvas.
+  cursor is not a canvas. It is re-applied from `VrUiCursor.Update` — every frame, for the whole
+  session — so outside VR it is both the wrong pointer and a needless per-frame cost. This plugin
+  switches that component off when it is not in a VR flight and hands the system cursor back.
 * Liftoff uses Rewired, so `UnityEngine.Input` is not an option for hotkeys.
 * **Not every shader can be told to ignore depth.** `Sprites/Default` looks like the obvious
   choice for a transparent overlay and has no depth control whatsoever: no `_ZTest` property,
@@ -386,6 +458,16 @@ Two things to get right when adding a `PostProcessLayer` to a camera yourself:
   it, that half switches itself off with a warning in the log and the overlay carries on alone.
 * **Both eyes see a stereo image.** Real goggles show one camera to both eyes, so there is no
   depth — this does not reproduce that. It is more comfortable this way, and less accurate.
+* **Switching VR off mid-flight does not fully undo it.** The analog look goes, but the HUD keeps
+  the size and position UUVR gave it. UUVR's own `CanvasRedirect.UndoPatch` restores three of the
+  four values it records and only reaches components that still exist, and it destroys and
+  rebuilds them constantly. Leave the flight instead — that path is clean.
+* **The HUD text has no outline.** Liftoff draws it plain white, which disappears against a
+  bright sky once the analog processing is on. TextMeshPro's outline works on the menu font and
+  not on the HUD's segmented face, whose atlas has no padding for an edge to grow into. A black
+  copy drawn behind each label was tried and dropped: text, position and size are each written at
+  a different point in Unity's frame, with no ordering guarantee for a plugin, and a shadow that
+  is occasionally wrong is worse than none. Hide the parts you do not need instead.
 * **Liftoff specific.** Scene names and HUD element names come from this game.
 * **The desktop window is black while VR is on.** That is UUVR. It does not matter in the flow
   above, since you only need the window when VR is off anyway.
@@ -413,6 +495,19 @@ control. With the SDK you get modern C# instead of C# 5.
 
 `.\package.ps1` builds and packs a release ZIP into `dist\`.
 
+### The shader
+
+`assets\fpvanalog` is committed, so the above needs no Unity. Rebuild it only when the shader
+changes:
+
+```powershell
+.\build-bundle.ps1
+```
+
+It finds a Unity 2022.3 editor itself and drives it in batch mode — the version has to match the
+game's, and Unity Personal has to be activated first or the editor will not start. See
+[Findings](#a-custom-shader-is-a-real-option-and-the-plumbing-is-the-easy-part).
+
 ### Layout
 
 | File | Contents |
@@ -420,8 +515,10 @@ control. With the SDK you get modern C# instead of C# 5.
 | [src/FpvGogglesPlugin.cs](src/FpvGogglesPlugin.cs) | Settings, Harmony patch, key codes |
 | [src/FpvGogglesRunner.cs](src/FpvGogglesRunner.cs) | Everything per frame: VR control, scenes, hotkeys, mask |
 | [src/HorizonIndicator.cs](src/HorizonIndicator.cs) | Artificial horizon |
-| [src/AnalogOverlay.cs](src/AnalogOverlay.cs) | Analog artefacts and the radio link model |
-| [src/AnalogPostFx.cs](src/AnalogPostFx.cs) | Analog colour and lens, through the game's post processing |
+| [src/AnalogOverlay.cs](src/AnalogOverlay.cs) | Overlay artefacts and the radio link model |
+| [src/AnalogPostFx.cs](src/AnalogPostFx.cs) | Camera and lens, through the game's post processing |
+| [src/CompositeVideo.cs](src/CompositeVideo.cs) | The composite pass and its shader bundle |
+| [unity/Assets/Shaders/FpvComposite.shader](unity/Assets/Shaders/FpvComposite.shader) | The encode and decode itself |
 
 One build note worth knowing: the plugin is compiled against the **game's** assemblies
 (.NET Standard 2.1), not the compiler's framework — hence `/nostdlib+` plus Unity's `mscorlib`

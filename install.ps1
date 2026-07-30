@@ -75,6 +75,23 @@ catch {
     exit 1
 }
 
+# The composite video shader. The mod runs without it, but it is what makes the picture look
+# like an analog signal instead of like a filter, so say something if it is missing.
+$bundle = Join-Path (Split-Path -Parent $dll) "fpvanalog"
+if (-not (Test-Path $bundle)) { $bundle = Join-Path $root "fpvanalog" }
+
+if (Test-Path $bundle) {
+    try {
+        Copy-Item $bundle $pluginDir -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Host "Could not copy the shader bundle - composite video will stay off." -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "No 'fpvanalog' file in this package - composite video will stay off." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "Installed to: $pluginDir" -ForegroundColor Green
 Write-Host ""

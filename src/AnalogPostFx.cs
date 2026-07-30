@@ -33,8 +33,13 @@ namespace LiftoffFpvGoggles
         private static LensDistortion _distortion;
         private static Bloom _bloom;
         private static AutoExposure _exposure;
+        private static CompositeVideo _composite;
+        private static CompositeVideoOpaque _compositeOpaque;
 
         private static bool _loggedLayer, _loggedNoResources;
+
+        /// <summary>Whether the PostProcessLayer on the camera is one we added, or the game's.</summary>
+        private static bool _layerIsOurs;
 
         internal static void Update(Camera viewCamera, float signal)
         {
@@ -60,16 +65,25 @@ namespace LiftoffFpvGoggles
         {
             float loss = 1f - Mathf.Clamp01(signal);
 
+            // Everything below this line models the camera and the lens. The radio link is the
+            // composite pass's job, and where the two overlap the composite pass wins - it is
+            // doing the real thing rather than approximating it, and both at once would only
+            // apply the same damage twice.
+            bool link = FpvGogglesPlugin.CompositeRunning;
+
             // Colour goes before the picture does. On a weak analog link the chroma subcarrier
             // is the first casualty, so you fly on a black and white image that is otherwise
             // perfectly readable - and getting the colour back is how you know you are clear
-            // again. One line, and it is the most convincing thing in this file.
-            float fade = loss * Mathf.Clamp01(FpvGogglesPlugin.ColourLoss.Value);
+            // again. With composite video on this happens by itself: the noise lands on the
+            // subcarrier and drowns it, so faking it here as well would strip the colour twice.
+            float fade = link ? 0f : loss * Mathf.Clamp01(FpvGogglesPlugin.ColourLoss.Value);
             _grading.saturation.value = Mathf.Lerp(FpvGogglesPlugin.Saturation.Value, -100f, fade);
             _grading.contrast.value = FpvGogglesPlugin.Contrast.Value;
             _grading.temperature.value = FpvGogglesPlugin.Temperature.Value;
 
-            float aberration = FpvGogglesPlugin.Aberration.Value;
+            // Chromatic aberration was standing in for chroma artefacts. The composite decoder
+            // produces the genuine article, so the stand-in steps aside.
+            float aberration = link ? 0f : FpvGogglesPlugin.Aberration.Value;
             _aberration.enabled.value = aberration > 0.001f;
             _aberration.intensity.value = aberration;
 
@@ -82,6 +96,53 @@ namespace LiftoffFpvGoggles
             _bloom.intensity.value = bloom;
 
             _exposure.enabled.value = FpvGogglesPlugin.AutoExposure.Value;
+
+            ApplyComposite(loss);
+        }
+
+        private static void ApplyComposite(float loss)
+        {
+            bool wanted = FpvGogglesPlugin.CompositeEnabled.Value && CompositeShader.Shader != null;
+            bool throughHud = FpvGogglesPlugin.CompositeAffectsHud.Value;
+
+            _composite.enabled.value = wanted && throughHud;
+            _compositeOpaque.enabled.value = wanted && !throughHud;
+            FpvGogglesPlugin.CompositeRunning = wanted;
+            if (!wanted) return;
+
+            CompositeVideoSettings settings = throughHud ? (CompositeVideoSettings)_composite : _compositeOpaque;
+
+            settings.lines.value = FpvGogglesPlugin.SignalLines.Value;
+            settings.subcarrier.value = FpvGogglesPlugin.SubcarrierFrequency.Value;
+            settings.chromaBleed.value = FpvGogglesPlugin.ChromaBleed.Value;
+            settings.saturation.value = FpvGogglesPlugin.ChromaGain.Value;
+            settings.softness.value = FpvGogglesPlugin.CompositeSoftness.Value;
+
+            // A clean picture keeps a trace of noise, because a real one does. The rest arrives
+            // with the link falling apart - and because it goes in before the decoder, it costs
+            // the colour first and the picture second, without either being scripted.
+            settings.noise.value = Mathf.Lerp(0.01f, FpvGogglesPlugin.SignalNoise.Value, loss * loss);
+
+            // Squared as well, so lines only start sliding once reception is genuinely poor
+            // rather than wobbling gently the whole flight.
+            settings.jitter.value = FpvGogglesPlugin.LineJitter.Value * loss * loss;
+
+            // Anything periodic would beat against the frame rate and read as a pattern, so the
+            // phase is simply thrown somewhere new every frame.
+            settings.seed.value = UnityEngine.Random.value;
+        }
+
+        private static void InitComposite(CompositeVideoSettings settings)
+        {
+            settings.enabled.Override(false);
+            settings.lines.Override(480f);
+            settings.subcarrier.Override(170f);
+            settings.noise.Override(0f);
+            settings.saturation.Override(1f);
+            settings.chromaBleed.Override(0.8f);
+            settings.jitter.Override(0f);
+            settings.softness.Override(0.15f);
+            settings.seed.Override(0f);
         }
 
         // ------------------------------------------------------------------
@@ -119,7 +180,7 @@ namespace LiftoffFpvGoggles
             // Above 1, so only genuine highlights bloom. At the usual 0.9 the bright specks of
             // the static overlay cross the threshold as well - post processing runs after
             // everything, snow included - and the picture washes out into a grey haze.
-            _bloom.threshold.Override(1.1f);
+            _bloom.threshold.Override(1.3f);
             _bloom.softKnee.Override(0.6f);
             _bloom.fastMode.Override(true);
             // Fewer blur iterations. At the headset's 2544x2564 per eye the bloom pyramid is by
@@ -136,12 +197,25 @@ namespace LiftoffFpvGoggles
             _exposure.minLuminance.Override(-3f);
             _exposure.maxLuminance.Override(3f);
 
+            // Our own effect, from the shipped bundle. Registered with the stack first: it scans
+            // for effect types once and would otherwise never have seen this one.
+            CompositeShader.Load();
+            CompositeShader.RegisterWithStack();
+            if (_layer != null) _layer.InitBundles();
+
+            // Both stages are built; only one ever runs. Which one decides whether the HUD and
+            // the horizon go through the link along with the picture.
+            _composite = ScriptableObject.CreateInstance<CompositeVideo>();
+            _compositeOpaque = ScriptableObject.CreateInstance<CompositeVideoOpaque>();
+            InitComposite(_composite);
+            InitComposite(_compositeOpaque);
+
             // Priority well above anything the game is likely to use, so our overrides win.
             // Only the parameters we actually override are affected; the rest of the game's
             // grading blends through untouched.
             _volume = PostProcessManager.instance.QuickVolume(
                 VolumeLayerIndex(), 1000f,
-                _grading, _aberration, _distortion, _bloom, _exposure);
+                _grading, _aberration, _distortion, _bloom, _exposure, _composite, _compositeOpaque);
 
             FpvGogglesPlugin.Log.LogInfo("Analog image processing volume created.");
         }
@@ -176,6 +250,7 @@ namespace LiftoffFpvGoggles
 
             if (_layer != null)
             {
+                _layerIsOurs = false;
                 if (!_loggedLayer)
                 {
                     _loggedLayer = true;
@@ -198,6 +273,7 @@ namespace LiftoffFpvGoggles
             }
 
             _layer = viewCamera.gameObject.AddComponent<PostProcessLayer>();
+            _layerIsOurs = true;
             _layer.Init(resources);
             _layer.volumeTrigger = viewCamera.transform;
             _layer.volumeLayer = InheritedVolumeMask();
@@ -266,8 +342,13 @@ namespace LiftoffFpvGoggles
 
             DestroySettings();
 
-            // The layer is deliberately left alone. It may well be the game's own, and pulling
-            // a component off a camera we did not build it on is how you break a game.
+            // A layer we added goes with us: leaving one behind keeps the camera rendering
+            // through the post processing path for nothing, and any volume the game happens to
+            // have would then apply to a camera it was never meant for. A layer the game put
+            // there is left strictly alone.
+            if (_layerIsOurs && _layer != null) UnityEngine.Object.Destroy(_layer);
+
+            _layerIsOurs = false;
             _camera = null;
             _layer = null;
         }
@@ -279,6 +360,9 @@ namespace LiftoffFpvGoggles
             DestroySetting(_distortion); _distortion = null;
             DestroySetting(_bloom); _bloom = null;
             DestroySetting(_exposure); _exposure = null;
+            DestroySetting(_composite); _composite = null;
+            DestroySetting(_compositeOpaque); _compositeOpaque = null;
+            FpvGogglesPlugin.CompositeRunning = false;
         }
 
         private static void DestroySetting(PostProcessEffectSettings settings)

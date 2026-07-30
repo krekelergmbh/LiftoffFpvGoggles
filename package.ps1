@@ -29,6 +29,15 @@ New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
 
 Copy-Item $dll $pluginDir
 
+# The shader bundle goes next to the DLL, which is where the plugin looks for it. Missing it is
+# a broken release rather than a smaller one, so stop instead of shipping a mod whose headline
+# feature silently does nothing.
+$bundle = Join-Path $root "assets\fpvanalog"
+if (-not (Test-Path $bundle)) {
+    throw "No shader bundle at $bundle. Run build-bundle.ps1 first, or the release would ship without composite video."
+}
+Copy-Item $bundle $pluginDir
+
 # install.ps1 sits at the top of the ZIP so it is the first thing anyone sees after
 # extracting; README and LICENSE ride along next to the DLL.
 Copy-Item (Join-Path $root "install.ps1") $staging

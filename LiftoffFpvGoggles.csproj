@@ -79,6 +79,11 @@
       <HintPath>$(GameManaged)\Unity.Postprocessing.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Loading the composite video shader out of its bundle. -->
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(GameManaged)\UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

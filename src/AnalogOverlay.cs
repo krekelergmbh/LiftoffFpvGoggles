@@ -240,15 +240,26 @@ namespace LiftoffFpvGoggles
             float vignette = Mathf.Clamp01(FpvGogglesPlugin.VignetteStrength.Value);
             SetLayer(_vignette, vignette > 0.001f, new Color(0f, 0f, 0f, vignette));
 
-            float scanlines = Mathf.Clamp01(FpvGogglesPlugin.ScanlineStrength.Value);
+            // Painted scanlines are a stand-in for a line structure the signal does not have.
+            // Once the composite pass is decoding at a real line count, it has one - so the
+            // stand-in comes off, instead of laying a second set of lines over the first.
+            float scanlines = FpvGogglesPlugin.CompositeRunning
+                ? 0f
+                : Mathf.Clamp01(FpvGogglesPlugin.ScanlineStrength.Value);
             SetLayer(_scanlines, scanlines > 0.001f, new Color(0f, 0f, 0f, scanlines));
 
             // Snow rises as the link falls, but never quite goes away: even a perfect analog
             // picture has grain on it.
+            //
+            // Unless the composite pass is running, in which case it hands the job over. Noise
+            // mixed into the signal before it is decoded is the real thing - it becomes speckle,
+            // colour blotches and lost colour at once - and painting more on top of that would
+            // only bury it.
             float grain = Mathf.Clamp01(FpvGogglesPlugin.BaseGrain.Value);
             float heavy = Mathf.Clamp01(FpvGogglesPlugin.StaticStrength.Value);
             float amount = Mathf.Lerp(grain, heavy, 1f - _signal);
             if (_burstLeft > 0f) amount = Mathf.Max(amount, heavy * 0.9f);
+            if (FpvGogglesPlugin.CompositeRunning) amount = 0f;
 
             SetLayer(_static, amount > 0.001f, new Color(1f, 1f, 1f, amount));
             if (amount > 0.001f) CycleNoise();

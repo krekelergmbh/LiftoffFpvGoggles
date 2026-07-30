@@ -83,6 +83,7 @@ namespace LiftoffFpvGoggles
             }
 
             UpdateGoggles();
+            UpdateSoftwareCursor();
             HideHudElements();
         }
 
@@ -632,6 +633,13 @@ namespace LiftoffFpvGoggles
             {
                 HorizonIndicator.Teardown();
                 AnalogOverlay.Teardown();
+
+                // This line was missing, and it is why leaving VR left the analog look on the
+                // screen. Everything drawn by this plugin is torn down here, but the post
+                // processing volume lives in the game's own stack and had nobody telling it to
+                // go - so it carried on grading, blooming and decoding a composite signal.
+                UpdatePostFx(null);
+
                 if (_maskObject != null && _maskObject.activeSelf) _maskObject.SetActive(false);
                 return;
             }
@@ -699,6 +707,66 @@ namespace LiftoffFpvGoggles
             }
 
             if (!_maskObject.activeSelf) _maskObject.SetActive(true);
+        }
+
+        // ------------------------------------------------------------------
+        // UUVR's software cursor
+        // ------------------------------------------------------------------
+
+        private static Type _cursorType;
+        private static bool _cursorSearched;
+        private static bool _cursorRunning = true;
+        private float _cursorTimer;
+
+        /// <summary>
+        /// UUVR replaces the mouse pointer with a software cursor it can draw onto the VR UI
+        /// plane, and re-asserts it from Update - every frame, for the whole session. Outside a
+        /// VR flight that is the wrong pointer in a flat menu, and Cursor.SetCursor is expensive
+        /// enough that calling it per frame is felt as the menu being sluggish.
+        ///
+        /// So the component is switched off in menus and back on for a VR flight. Its own object
+        /// is left alone; UUVR rebuilds those constantly and destroying one would only annoy it.
+        /// </summary>
+        private void UpdateSoftwareCursor()
+        {
+            _cursorTimer -= Time.unscaledDeltaTime;
+            if (_cursorTimer > 0f) return;
+            _cursorTimer = 0.5f;
+
+            if (!_cursorSearched)
+            {
+                _cursorSearched = true;
+                _cursorType = AccessTools.TypeByName("Uuvr.VrUi.VrUiCursor");
+                if (_cursorType == null)
+                {
+                    FpvGogglesPlugin.Log.LogInfo("No Uuvr.VrUi.VrUiCursor found; leaving the mouse pointer alone.");
+                }
+            }
+
+            if (_cursorType == null) return;
+
+            bool wanted = !FpvGogglesPlugin.InMenu && FpvGogglesPlugin.VrActive;
+
+            UnityEngine.Object[] cursors = UnityEngine.Object.FindObjectsOfType(_cursorType);
+            for (int i = 0; i < cursors.Length; i++)
+            {
+                Behaviour cursor = cursors[i] as Behaviour;
+                if (cursor == null || cursor.enabled == wanted) continue;
+                cursor.enabled = wanted;
+            }
+
+            if (_cursorRunning == wanted) return;
+            _cursorRunning = wanted;
+
+            // Handing the pointer back has to be done explicitly - switching the component off
+            // stops it re-applying the software cursor but does not undo the last one.
+            if (!wanted)
+            {
+                try { Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto); }
+                catch (Exception) { }
+            }
+
+            FpvGogglesPlugin.Log.LogInfo("UUVR software cursor " + (wanted ? "on (VR flight)" : "off (menu or flat)") + ".");
         }
 
         private static bool _postFxBroken;

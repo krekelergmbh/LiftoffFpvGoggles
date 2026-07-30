@@ -13,6 +13,17 @@ PUBLISHING.md
 # Raw screenshots; the cropped versions used by the README live in docs/
 Screenshot*.png
 
+# Unity project for the shader bundle. Only Assets\ and the built bundle in assets\ are kept -
+# everything else Unity regenerates on first open, and Library alone is hundreds of megabytes.
+unity/Library/
+unity/Temp/
+unity/Logs/
+unity/obj/
+unity/UserSettings/
+unity/Builds/
+unity/*.csproj
+unity/*.sln
+
 # Editors
 .vs/
 .idea/

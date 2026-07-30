@@ -83,7 +83,8 @@ $refs = @(
     "$managed\UnityEngine.XRModule.dll",
     "$managed\UnityEngine.VRModule.dll",  # XRSettings lives here, not in XRModule
     "$managed\UnityEngine.PhysicsModule.dll",  # line of sight check for the analog signal model
-    "$managed\Unity.Postprocessing.Runtime.dll"  # the game's own post processing stack
+    "$managed\Unity.Postprocessing.Runtime.dll",  # the game's own post processing stack
+    "$managed\UnityEngine.AssetBundleModule.dll"  # loading the composite video shader
 )
 
 if ($BepInExDir) {
@@ -146,4 +147,20 @@ catch {
     Write-Host "Compiled to $outDll" -ForegroundColor Green
     Write-Host "Could not install - is the game still running? Run build.ps1 again after closing it." -ForegroundColor Yellow
     exit 2
+}
+
+# The composite video shader, which has to sit next to the DLL because that is where the plugin
+# looks for it. Built separately by build-bundle.ps1 and committed, so this build needs no Unity.
+$bundle = Join-Path $root "assets\fpvanalog"
+if (Test-Path $bundle) {
+    try {
+        Copy-Item $bundle $pluginDir -Force -ErrorAction Stop
+        Write-Host "OK -> $pluginDir\fpvanalog" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Could not copy the shader bundle - composite video will stay off." -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "No shader bundle in assets\. Composite video stays off; run build-bundle.ps1 to make one." -ForegroundColor Yellow
 }

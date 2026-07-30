@@ -18,11 +18,13 @@ namespace LiftoffFpvGoggles
         private static GameObject _root;
         private static Transform _bar;
         private static Material _material;
+        private static Material _outlineMaterial;
         private static Camera _camera;
 
         private static float _builtHalfWidth, _builtHalfHeight, _builtDistance;
         private static float _builtWidth, _builtGap, _builtThickness, _builtScale;
         private static IndicatorColour _builtColour;
+        private static float _builtOutline;
         private static bool _built;
 
         /// <summary>
@@ -113,7 +115,8 @@ namespace LiftoffFpvGoggles
                 || _builtGap != FpvGogglesPlugin.HorizonGap.Value
                 || _builtThickness != FpvGogglesPlugin.HorizonThickness.Value
                 || _builtScale != FpvGogglesPlugin.HorizonScale.Value
-                || _builtColour != FpvGogglesPlugin.HorizonColour.Value;
+                || _builtColour != FpvGogglesPlugin.HorizonColour.Value
+                || _builtOutline != FpvGogglesPlugin.HorizonOutline.Value;
         }
 
         private static void Build(Camera viewCamera)
@@ -129,15 +132,22 @@ namespace LiftoffFpvGoggles
             _root.transform.localScale = Vector3.one;
             _root.layer = viewCamera.gameObject.layer;
 
-            if (_material == null) _material = CreateMaterial();
+            // Two materials for one colour scheme, because the only thing separating the black
+            // edge from the line on top of it is the render queue.
+            if (_outlineMaterial == null) _outlineMaterial = CreateMaterial(6006);
+            if (_material == null) _material = CreateMaterial(6007);
 
-            _bar = NewPart("Bar", _root.transform).transform;
-            NewPart("CentreMark", _root.transform);
+            // The outline is a child of the bar, so it rolls and slides with it for free.
+            _bar = NewPart("Bar", _root.transform, _material).transform;
+            NewPart("BarOutline", _bar, _outlineMaterial);
+
+            Transform centre = NewPart("CentreMark", _root.transform, _material).transform;
+            NewPart("CentreMarkOutline", centre, _outlineMaterial);
 
             _built = false;
         }
 
-        private static GameObject NewPart(string name, Transform parent)
+        private static GameObject NewPart(string name, Transform parent, Material material)
         {
             GameObject part = new GameObject(name);
             part.transform.SetParent(parent, false);
@@ -145,7 +155,7 @@ namespace LiftoffFpvGoggles
 
             part.AddComponent<MeshFilter>();
             MeshRenderer renderer = part.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = _material;
+            renderer.sharedMaterial = material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             renderer.lightProbeUsage = LightProbeUsage.Off;
@@ -166,20 +176,24 @@ namespace LiftoffFpvGoggles
             // window; the pitch offset is applied afterwards, in screen space.
             Color32 colour = CurrentColour();
 
-            Mesh bar = new Mesh();
-            bar.name = "FpvHorizonBar";
-            bar.hideFlags = HideFlags.HideAndDontSave;
-            FillTwoBars(bar, -outer, -gap, gap, outer, thickness, colour);
-            _bar.GetComponent<MeshFilter>().sharedMesh = bar;
+            // The black edge is the same shape, drawn thicker and slightly longer underneath.
+            // Without it a thin bright line simply disappears into static or into a bright sky,
+            // which is why every real OSD font has one.
+            Color32 black = new Color32(0, 0, 0, 255);
+            float edge = thickness * Mathf.Max(0f, FpvGogglesPlugin.HorizonOutline.Value);
+            bool outlined = edge > 0.0001f;
+
+            SetMesh(_bar, "FpvHorizonBar", -outer, -gap, gap, outer, thickness, colour);
+            SetOutline(_bar.Find("BarOutline"), "FpvHorizonBarOutline", outlined,
+                -outer - edge, -gap + edge, gap - edge, outer + edge, thickness + edge, black);
 
             // Fixed reference: a short dash in the gap, plus two small ticks flanking it.
             Transform centre = _root.transform.Find("CentreMark");
-            Mesh mark = new Mesh();
-            mark.name = "FpvHorizonCentre";
-            mark.hideFlags = HideFlags.HideAndDontSave;
             float dash = gap * 0.35f;
-            FillTwoBars(mark, -dash, -dash * 0.25f, dash * 0.25f, dash, thickness, colour);
-            centre.GetComponent<MeshFilter>().sharedMesh = mark;
+
+            SetMesh(centre, "FpvHorizonCentre", -dash, -dash * 0.25f, dash * 0.25f, dash, thickness, colour);
+            SetOutline(centre.Find("CentreMarkOutline"), "FpvHorizonCentreOutline", outlined,
+                -dash - edge, -dash * 0.25f + edge, dash * 0.25f - edge, dash + edge, thickness + edge, black);
 
             _root.transform.localPosition = new Vector3(0f, 0f, distance);
 
@@ -191,7 +205,45 @@ namespace LiftoffFpvGoggles
             _builtThickness = FpvGogglesPlugin.HorizonThickness.Value;
             _builtScale = FpvGogglesPlugin.HorizonScale.Value;
             _builtColour = FpvGogglesPlugin.HorizonColour.Value;
+            _builtOutline = FpvGogglesPlugin.HorizonOutline.Value;
             _built = true;
+        }
+
+        private static void SetMesh(Transform part, string name, float leftOuter, float leftInner,
+            float rightInner, float rightOuter, float thickness, Color32 colour)
+        {
+            MeshFilter filter = part.GetComponent<MeshFilter>();
+
+            Mesh mesh = filter.sharedMesh;
+            if (mesh == null)
+            {
+                mesh = new Mesh();
+                mesh.hideFlags = HideFlags.HideAndDontSave;
+                filter.sharedMesh = mesh;
+            }
+
+            mesh.name = name;
+            FillTwoBars(mesh, leftOuter, leftInner, rightInner, rightOuter, thickness, colour);
+        }
+
+        private static void SetOutline(Transform part, string name, bool visible, float leftOuter,
+            float leftInner, float rightInner, float rightOuter, float thickness, Color32 colour)
+        {
+            if (part == null) return;
+
+            if (part.gameObject.activeSelf != visible) part.gameObject.SetActive(visible);
+            if (!visible) return;
+
+            // A wide edge can eat the whole gap, at which point the two halves join up and the
+            // centre mark has nowhere to sit.
+            if (leftInner >= rightInner)
+            {
+                float middle = (leftInner + rightInner) * 0.5f;
+                leftInner = middle;
+                rightInner = middle;
+            }
+
+            SetMesh(part, name, leftOuter, leftInner, rightInner, rightOuter, thickness, colour);
         }
 
         /// <summary>Two rectangles in the XY plane, wound both ways so culling cannot hide them.</summary>
@@ -222,7 +274,7 @@ namespace LiftoffFpvGoggles
             mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1000f);
         }
 
-        private static Material CreateMaterial()
+        private static Material CreateMaterial(int queue)
         {
             string[] candidates = { "Unlit/Color", "Hidden/Internal-Colored", "Sprites/Default", "UI/Default" };
 
@@ -255,8 +307,9 @@ namespace LiftoffFpvGoggles
             if (material.HasProperty("_Color")) material.SetColor("_Color", Color.white);
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
 
-            // Above the goggle mask, so it stays readable over the black border too.
-            material.renderQueue = 5001;
+            // Above the mask and above the analog overlay layers. The indicator is the one thing
+            // on screen that has to stay readable when the picture does not.
+            material.renderQueue = queue;
             if (material.HasProperty("_ZTest")) material.SetInt("_ZTest", (int)CompareFunction.Always);
             material.SetInt("unity_GUIZTestMode", (int)CompareFunction.Always);
             if (material.HasProperty("_ZWrite")) material.SetInt("_ZWrite", 0);

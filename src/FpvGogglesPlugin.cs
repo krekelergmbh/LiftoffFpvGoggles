@@ -44,7 +44,7 @@ namespace LiftoffFpvGoggles
         Off = 4,
     }
 
-    [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.8.0")]
+    [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.9.0")]
     [BepInDependency("raicuparta.uuvr-modern", BepInDependency.DependencyFlags.HardDependency)]
     public class FpvGogglesPlugin : BaseUnityPlugin
     {
@@ -98,6 +98,7 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<HotKey> HorizonSmallerKey;
         internal static ConfigEntry<IndicatorColour> HorizonColour;
         internal static ConfigEntry<HotKey> HorizonColourKey;
+        internal static ConfigEntry<float> HorizonOutline;
 
         // --- Analog video ---
         internal static ConfigEntry<bool> AnalogEnabled;
@@ -124,6 +125,17 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<float> BloomIntensity;
         internal static ConfigEntry<bool> AutoExposure;
 
+        // --- Composite video (the shipped shader) ---
+        internal static ConfigEntry<bool> CompositeEnabled;
+        internal static ConfigEntry<int> SignalLines;
+        internal static ConfigEntry<float> SubcarrierFrequency;
+        internal static ConfigEntry<float> SignalNoise;
+        internal static ConfigEntry<float> LineJitter;
+        internal static ConfigEntry<float> ChromaBleed;
+        internal static ConfigEntry<float> ChromaGain;
+        internal static ConfigEntry<float> CompositeSoftness;
+        internal static ConfigEntry<bool> CompositeAffectsHud;
+
         internal static Type PoseDriverType;
         internal static PropertyInfo DisablePositionalTrackingProperty;
 
@@ -135,6 +147,18 @@ namespace LiftoffFpvGoggles
 
         /// <summary>Set by the runner from XRSettings.enabled.</summary>
         internal static bool VrActive;
+
+        /// <summary>
+        /// True while the composite pass is actually rendering. The overlay reads it to drop its
+        /// own static, because noise mixed into the signal before decoding is the real article
+        /// and painting more on top would only bury it.
+        ///
+        /// It lives here rather than on AnalogPostFx on purpose. That class has post processing
+        /// types in its fields, so merely reading a flag from it would load them - and on a
+        /// Liftoff without the package that throws, from inside the overlay, which is not
+        /// guarded against it.
+        /// </summary>
+        internal static bool CompositeRunning;
 
         // Hotkey toggles are session-only: null means "follow the config file". Otherwise a
         // quick A/B comparison during one flight would silently become the permanent setting.
@@ -357,6 +381,13 @@ namespace LiftoffFpvGoggles
                 "Horizon", "Cycle Colour Key", HotKey.F9,
                 "Steps through white, green, red, yellow and off. Saved to this file, unlike the session-only toggles.");
 
+            // A thin bright line on a noisy picture is the one thing an OSD must not be, and
+            // real ones solve it the same way: a black edge around every character.
+            HorizonOutline = Config.Bind(
+                "Horizon", "Outline Width", 1f,
+                new ConfigDescription("Black edge drawn behind the indicator, as a multiple of the line thickness. This is what keeps it readable over static and over a bright sky. 0 switches it off.",
+                    new AcceptableValueRange<float>(0f, 4f)));
+
             // ---------------- Analog video ----------------
 
             // What is drawn here are flat quads laid over the picture. That rules out anything
@@ -464,9 +495,12 @@ namespace LiftoffFpvGoggles
                 new ConfigDescription("Barrel distortion of the FPV lens. Negative bulges outwards, which is the direction a wide angle lens bends.",
                     new AcceptableValueRange<float>(-100f, 100f)));
 
+            // Lower than it looks like it should be, because composite video runs before this
+            // and its noise goes through the bloom as well. On a bright sky that is what turns
+            // the whole picture into a white haze.
             BloomIntensity = Config.Bind(
-                "Analog Image", "Bloom", 0.8f,
-                new ConfigDescription("How hard bright spots blow out. Analog cameras handle a light source or a bright sky far worse than a render does, and this is where you notice it.",
+                "Analog Image", "Bloom", 0.45f,
+                new ConfigDescription("How hard bright spots blow out. Analog cameras handle a light source or a bright sky far worse than a render does. Keep it low with composite video on - the static passes through here too and a bright sky will wash the whole picture out.",
                     new AcceptableValueRange<float>(0f, 3f)));
 
             // The single most recognisable behaviour of a cheap FPV camera: point it at the sky
@@ -474,6 +508,75 @@ namespace LiftoffFpvGoggles
             AutoExposure = Config.Bind(
                 "Analog Image", "Auto Exposure", true,
                 "Gain control that hunts for an exposure, the way an FPV camera does when you pitch up into the sky and back down again.");
+
+            // ---------------- Composite video ----------------
+
+            // The only part of this mod that ships a compiled shader, because it is the only
+            // part that cannot be expressed as settings on somebody else's effect. It encodes
+            // the picture into an analog signal, spoils it, and decodes it again - the artefacts
+            // are what is left over rather than something drawn on.
+            CompositeEnabled = Config.Bind(
+                "Composite Video", "Enable Composite Video", true,
+                "Runs the picture through a real composite video encode and decode: dot crawl, rainbow patterns on fine detail, colour smearing sideways, and colour dying before the picture does. Needs the 'fpvanalog' file next to the plugin DLL. Switch it off to get the 4.8 look back.");
+
+            // Not 480, even though that is what analog video has. Those 480 lines fill a 46
+            // degree goggle - about ten lines per degree - while a headset spreads the picture
+            // over roughly a hundred degrees. Matching the real angular sharpness across that
+            // much view takes about a thousand. Turn the goggle mask on and 480 becomes correct
+            // again, because then the picture only fills 46 degrees, as it does on the bench.
+            SignalLines = Config.Bind(
+                "Composite Video", "Signal Lines", 1000,
+                new ConfigDescription("Lines in the emulated signal, and the resolution the decode runs at - so this is the frame rate knob as well as the sharpness knob. Analog video has 480 lines, but they fill a 46 degree goggle; across a headset's much wider view it takes about a thousand to look equally sharp. Use 480 if you switch the goggle mask on. 0 means full headset resolution, which is expensive and no more accurate.",
+                    new AcceptableValueRange<int>(0, 1600)));
+
+            // Cycles across one line. Fewer cycles means larger, more obvious artefacts; more
+            // cycles is closer to broadcast NTSC, where 227.5 is the real figure.
+            // The real NTSC figure, and it is not just for authenticity. The subcarrier sits at
+            // the top of the brightness band there, where there is least detail to interfere
+            // with. Putting it lower - as the first version did at 170 - drops it into the
+            // middle of the band, and every artefact gets coarser and more obvious for it.
+            SubcarrierFrequency = Config.Bind(
+                "Composite Video", "Subcarrier Frequency", 227.5f,
+                new ConfigDescription("Colour subcarrier cycles across one line, which sets how fine the artefacts are. 227.5 is the real NTSC figure and puts the carrier where it interferes least. Lower makes dot crawl coarser and edge echoes wider.",
+                    new AcceptableValueRange<float>(40f, 400f)));
+
+            // Noise on a composite signal goes much further than noise painted over a picture:
+            // the decoder turns one number into speckle, colour blotches and lost colour at
+            // once. The first value carried over from the overlay was far too high for that.
+            SignalNoise = Config.Bind(
+                "Composite Video", "Signal Noise", 0.18f,
+                new ConfigDescription("Noise mixed into the signal once the link is gone. It goes in before decoding, so it becomes speckle, colour blotches and lost colour all at once - a little goes a long way. Raise it if a dead link should be unflyable rather than just ugly.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+
+            // A fraction of the picture width, per line, and it reads as sharp edges bending.
+            // At 0.02 that is two per cent of the screen - forty pixels of sideways slide on
+            // every line, which is a broken cable rather than a weak signal.
+            LineJitter = Config.Bind(
+                "Composite Video", "Line Jitter", 0.004f,
+                new ConfigDescription("How far lines slide sideways when the signal is bad, as a fraction of the picture width. This is the horizontal tearing an overlay cannot do, and it is what makes straight edges look bent. Very small numbers go a long way.",
+                    new AcceptableValueRange<float>(0f, 0.05f)));
+
+            ChromaBleed = Config.Bind(
+                "Composite Video", "Chroma Bleed", 0.8f,
+                new ConfigDescription("How much wider the colour is smeared than the brightness. Composite gives colour far less bandwidth than luma, which is why analog colour runs past edges.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            ChromaGain = Config.Bind(
+                "Composite Video", "Chroma Gain", 1f,
+                new ConfigDescription("Gain on the decoded colour. Below 1 washes out, above 1 oversaturates the way a badly adjusted receiver does.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+
+            // A receiver recovers brightness by subtracting the colour it just decoded from the
+            // untouched signal, not by averaging the signal - which is why it stays sharp.
+            // This blends back towards the averaged version for anyone who wants it softer.
+            CompositeSoftness = Config.Bind(
+                "Composite Video", "Softness", 0f,
+                new ConfigDescription("How much brightness detail is given up. 0 is as sharp as the emulation gets, 1 averages it over the whole filter window and is very soft.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            CompositeAffectsHud = Config.Bind(
+                "Composite Video", "Affects HUD", false,
+                "Off, the decode runs before the HUD and the horizon are drawn, so those stay clean - a goggle's own display is not what came down the radio link. On, everything goes through it, which is what real hardware does with a flight controller OSD, and is harder to read.");
 
             // ---------------- Patches ----------------
 
