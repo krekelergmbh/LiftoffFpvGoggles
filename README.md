@@ -9,7 +9,9 @@ game into a headset; this plugin makes it behave like goggles rather than like V
 
 *Mid-flight, seen through the headset. Speed and altitude sit on their own resizable plane, and
 the artificial horizon is the short bar above centre with the fixed mark below it — the drone
-is banked slightly left. Turning your head changes none of this.*
+is banked slightly left. Turning your head changes none of this. This one is a single-eye
+SteamVR mirror capture, which is why the lens shape is visible; in the headset it fills your
+view.*
 
 ## Why
 
@@ -33,10 +35,12 @@ on the field, and it quietly makes the sim easier than the thing it is simulatin
 * **Hide HUD elements.** Drop the crosshair, the stick indicators, the recording icon, or the
   entire HUD, by name.
 
-![On the ground](docs/on-the-ground.jpg)
+![Composite video](docs/composite-video.jpg)
 
-*Waiting on the ground. Both shots are single-eye SteamVR mirror captures, which is why the
-lens shape is visible — in the headset it fills your view.*
+*The same picture with composite video on. Look at the scaffolding: colour running off the edges
+of every bar, speckle in the dark faces, and the whole thing softened to about the resolution an
+analog link actually carries. None of that is drawn on — it is what survives being encoded into
+one signal and decoded again.*
 
 * **Real composite video.** The picture is encoded into an analog signal, spoiled, and decoded
   again — so dot crawl, rainbow patterns on fine detail, sideways colour smear and colour dying
