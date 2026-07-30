@@ -52,9 +52,16 @@ namespace LiftoffFpvGoggles
 
         internal static ManualLogSource Log;
 
+        /// <summary>
+        /// The settings file itself, so the menu can build itself out of the entries rather than
+        /// listing them a second time and drifting apart from them.
+        /// </summary>
+        internal static ConfigFile Configuration;
+
         // --- General ---
         internal static ConfigEntry<bool> KeepVrOffInMenus;
         internal static ConfigEntry<string> MenuSceneNames;
+        internal static ConfigEntry<HotKey> ToggleMenuKey;
 
         // --- Head tracking (the actual point of this mod) ---
         internal static ConfigEntry<bool> LockRotation;
@@ -64,7 +71,6 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<bool> HudOnVrPlane;
         internal static ConfigEntry<HotKey> UiSmallerKey;
         internal static ConfigEntry<HotKey> UiBiggerKey;
-        internal static ConfigEntry<float> UiScaleStep;
         internal static ConfigEntry<string> HideHudElements;
         internal static ConfigEntry<HotKey> DumpHudKey;
 
@@ -73,7 +79,6 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<HotKey> UiRightKey;
         internal static ConfigEntry<HotKey> UiUpKey;
         internal static ConfigEntry<HotKey> UiDownKey;
-        internal static ConfigEntry<float> OffsetStep;
 
         // --- Optional: goggle field of view ---
         internal static ConfigEntry<bool> MaskEnabled;
@@ -220,6 +225,7 @@ namespace LiftoffFpvGoggles
         private void Awake()
         {
             Log = Logger;
+            Configuration = Config;
 
             // ---------------- General ----------------
 
@@ -246,6 +252,13 @@ namespace LiftoffFpvGoggles
                 "Head Tracking", "Disable Head Position", true,
                 "Ignores head position, so leaning or moving your head no longer shifts the camera.");
 
+            // A menu beats a key for anything you set once and then leave alone, and with a
+            // headset on it beats it by a mile - you cannot see the keyboard. Everything that
+            // used to have its own key is in there, so those keys default to unbound.
+            ToggleMenuKey = Config.Bind(
+                "General", "Settings Menu Key", HotKey.F10,
+                "Opens a settings menu you can click through with the mouse. It appears in the headset as well, because UUVR puts it on the same plane as the game's own interface.");
+
             // ---------------- HUD ----------------
 
             // CanvasRedirect puts only the game's canvases on the VR plane, so the HUD can be
@@ -256,11 +269,11 @@ namespace LiftoffFpvGoggles
                 "HUD", "HUD On VR Plane In Flight", true,
                 "During a VR flight, put the game's HUD on UUVR's UI plane so it can be resized. Outside a VR flight the capture mode is forced back to None, which keeps menus working.");
 
-            UiSmallerKey = Config.Bind("HUD", "Shrink HUD Key", HotKey.F7, "Makes the HUD plane smaller.");
-            UiBiggerKey = Config.Bind("HUD", "Grow HUD Key", HotKey.F8, "Makes the HUD plane bigger.");
-            UiScaleStep = Config.Bind("HUD", "HUD Scale Step", 0.1f,
-                new ConfigDescription("How much one key press changes UUVR's 'VR UI Scale'.",
-                    new AcceptableValueRange<float>(0.02f, 1f)));
+            // Unbound since the menu arrived. Sizing the HUD is something you do once, and
+            // hunting for a key with a headset on is the thing the menu exists to avoid. Bind a
+            // free key here if you would rather have it under your fingers.
+            UiSmallerKey = Config.Bind("HUD", "Shrink HUD Key", HotKey.None, "Makes the HUD plane smaller. In the menu as well.");
+            UiBiggerKey = Config.Bind("HUD", "Grow HUD Key", HotKey.None, "Makes the HUD plane bigger. In the menu as well.");
 
             // A real analog goggle shows no crosshair, so being able to drop single HUD parts
             // is a realism feature, not just cosmetics. Names have to be read from the game
@@ -283,16 +296,14 @@ namespace LiftoffFpvGoggles
             // Only the HUD plane can be moved. Shifting the whole VR view was tried and
             // dropped: UUVR's camera offset made no visible difference, because what sits off
             // centre is the HUD, not the world.
-            UiLeftKey = Config.Bind("Centering", "Move HUD Left Key", HotKey.Home,
-                "Shifts the HUD plane left (UUVR's 'VR UI Position').");
-            UiRightKey = Config.Bind("Centering", "Move HUD Right Key", HotKey.End,
-                "Shifts the HUD plane right.");
-            UiUpKey = Config.Bind("Centering", "Move HUD Up Key", HotKey.PageUp,
-                "Shifts the HUD plane up.");
-            UiDownKey = Config.Bind("Centering", "Move HUD Down Key", HotKey.PageDown,
-                "Shifts the HUD plane down.");
-            OffsetStep = Config.Bind("Centering", "Offset Step", 0.02f,
-                new ConfigDescription("Metres per key press.", new AcceptableValueRange<float>(0.002f, 0.2f)));
+            UiLeftKey = Config.Bind("Centering", "Move HUD Left Key", HotKey.None,
+                "Shifts the HUD plane left (UUVR's 'VR UI Position'). In the menu as well.");
+            UiRightKey = Config.Bind("Centering", "Move HUD Right Key", HotKey.None,
+                "Shifts the HUD plane right. In the menu as well.");
+            UiUpKey = Config.Bind("Centering", "Move HUD Up Key", HotKey.None,
+                "Shifts the HUD plane up. In the menu as well.");
+            UiDownKey = Config.Bind("Centering", "Move HUD Down Key", HotKey.None,
+                "Shifts the HUD plane down. In the menu as well.");
 
             // ---------------- Optional: goggle field of view ----------------
 
@@ -300,8 +311,9 @@ namespace LiftoffFpvGoggles
                 "Goggle Mask", "Enable Mask", false,
                 "Draws a black border that narrows the image down to the field of view of a real goggle, and makes that window the area the analog artefacts are drawn on. Note what it does not do: it cuts a hole into a picture still rendered at headset field of view, so you see less of the world at the same scale - it does not squeeze a wide angle lens onto a small screen.");
 
-            ToggleMaskKey = Config.Bind("Goggle Mask", "Toggle Key", HotKey.F10,
-                "Toggles the goggle mask during a flight. Session only.");
+            // F10 belongs to the menu now, and the mask is a switch in there.
+            ToggleMaskKey = Config.Bind("Goggle Mask", "Toggle Key", HotKey.None,
+                "Toggles the goggle mask during a flight. Session only, so it never ends up in this file. In the menu as well.");
 
             MaskFovDiagonal = Config.Bind(
                 "Goggle Mask", "Diagonal FOV", 46f,
@@ -366,8 +378,10 @@ namespace LiftoffFpvGoggles
                 new ConfigDescription("Master size factor over width and thickness together, so the whole indicator can be resized with one key.",
                     new AcceptableValueRange<float>(0.1f, 3f)));
 
-            HorizonBiggerKey = Config.Bind("Horizon", "Grow Key", HotKey.Insert, "Makes the horizon indicator bigger.");
-            HorizonSmallerKey = Config.Bind("Horizon", "Shrink Key", HotKey.Delete, "Makes the horizon indicator smaller.");
+            HorizonBiggerKey = Config.Bind("Horizon", "Grow Key", HotKey.None,
+                "Makes the horizon indicator bigger. In the menu as well.");
+            HorizonSmallerKey = Config.Bind("Horizon", "Shrink Key", HotKey.None,
+                "Makes the horizon indicator smaller. In the menu as well.");
 
             // A single colour cannot work everywhere: white is unreadable against a bright sky
             // or a concrete hall, and the map decides that, not the pilot. So it cycles - and
@@ -396,7 +410,7 @@ namespace LiftoffFpvGoggles
             // plugin. It would have to be shipped as an AssetBundle built in Liftoff's own Unity
             // version, and would break every time that version moves.
             AnalogEnabled = Config.Bind(
-                "Analog Video", "Enable Analog Video", false,
+                "Analog Video", "Enable Analog Video", true,
                 "Lays the artefacts of an analog video link over the picture: lens vignette, RF static, and the scanlines of the goggle screen. How much static you get depends on where you are flying - see 'Signal Range' below.");
 
             // F6 because the neighbours are taken: Liftoff toggles its own HUD on F4, F5, F11

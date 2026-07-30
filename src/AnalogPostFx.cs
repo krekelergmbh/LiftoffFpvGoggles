@@ -43,7 +43,13 @@ namespace LiftoffFpvGoggles
 
         internal static void Update(Camera viewCamera, float signal)
         {
-            if (viewCamera == null || !FpvGogglesPlugin.ImageProcessing.Value)
+            // Both halves live in the same volume, so it stays up while either one wants it.
+            // Gating it on the image processing switch alone tore the composite pass down with
+            // it - and left its own switch doing nothing at all, which is a maddening way for a
+            // feature to fail.
+            bool wanted = FpvGogglesPlugin.ImageProcessing.Value || FpvGogglesPlugin.CompositeEnabled.Value;
+
+            if (viewCamera == null || !wanted)
             {
                 Teardown();
                 return;
@@ -71,6 +77,11 @@ namespace LiftoffFpvGoggles
             // apply the same damage twice.
             bool link = FpvGogglesPlugin.CompositeRunning;
 
+            // The camera and lens half, switched as a group. The composite pass below is not
+            // part of it and keeps its own switch, which is the point of the change.
+            bool image = FpvGogglesPlugin.ImageProcessing.Value;
+            _grading.enabled.value = image;
+
             // Colour goes before the picture does. On a weak analog link the chroma subcarrier
             // is the first casualty, so you fly on a black and white image that is otherwise
             // perfectly readable - and getting the colour back is how you know you are clear
@@ -84,18 +95,18 @@ namespace LiftoffFpvGoggles
             // Chromatic aberration was standing in for chroma artefacts. The composite decoder
             // produces the genuine article, so the stand-in steps aside.
             float aberration = link ? 0f : FpvGogglesPlugin.Aberration.Value;
-            _aberration.enabled.value = aberration > 0.001f;
+            _aberration.enabled.value = image && aberration > 0.001f;
             _aberration.intensity.value = aberration;
 
             float distortion = FpvGogglesPlugin.Distortion.Value;
-            _distortion.enabled.value = Mathf.Abs(distortion) > 0.01f;
+            _distortion.enabled.value = image && Mathf.Abs(distortion) > 0.01f;
             _distortion.intensity.value = distortion;
 
             float bloom = FpvGogglesPlugin.BloomIntensity.Value;
-            _bloom.enabled.value = bloom > 0.001f;
+            _bloom.enabled.value = image && bloom > 0.001f;
             _bloom.intensity.value = bloom;
 
-            _exposure.enabled.value = FpvGogglesPlugin.AutoExposure.Value;
+            _exposure.enabled.value = image && FpvGogglesPlugin.AutoExposure.Value;
 
             ApplyComposite(loss);
         }

@@ -84,6 +84,7 @@ namespace LiftoffFpvGoggles
 
             UpdateGoggles();
             UpdateSoftwareCursor();
+            UpdateSettingsMenu();
             HideHudElements();
         }
 
@@ -425,14 +426,21 @@ namespace LiftoffFpvGoggles
 
             // HUD size and position stay live everywhere - those are exactly the knobs you
             // need when something sits wrong.
-            float step = FpvGogglesPlugin.OffsetStep.Value;
-            if (uiSmaller) StepUiScale(-FpvGogglesPlugin.UiScaleStep.Value);
-            if (uiBigger) StepUiScale(FpvGogglesPlugin.UiScaleStep.Value);
+            // Fixed steps rather than settings of their own. These keys are unbound by default
+            // and the menu sets both values directly, so a knob for "how far does one press
+            // move it" was a setting about a setting.
+            const float step = 0.02f;
+            if (uiSmaller) StepUiScale(-0.1f);
+            if (uiBigger) StepUiScale(0.1f);
             if (hudLeft) StepUiOffset(-step, 0f);
             if (hudRight) StepUiOffset(step, 0f);
             if (hudUp) StepUiOffset(0f, step);
             if (hudDown) StepUiOffset(0f, -step);
             if (WasPressed(FpvGogglesPlugin.DumpHudKey.Value)) DumpHudTree();
+
+            // Works in menus too, not only in a flight. Setting the picture up before taking off
+            // is exactly when you want it.
+            if (WasPressed(FpvGogglesPlugin.ToggleMenuKey.Value)) ToggleSettingsMenu();
 
             if (FpvGogglesPlugin.InMenu)
             {
@@ -562,6 +570,63 @@ namespace LiftoffFpvGoggles
             {
                 FpvGogglesPlugin.Log.LogWarning("Failed to move the HUD plane: " + e.Message);
             }
+        }
+
+        // ------------------------------------------------------------------
+        // The same two UUVR values, reached by the menu rather than by a key
+        // ------------------------------------------------------------------
+
+        internal static float GetUiScale()
+        {
+            object entry;
+            PropertyInfo value;
+            if (!ResolveUuvrConfigEntry("VrUiScale", out entry, out value)) return 1f;
+
+            try { return Convert.ToSingle(value.GetValue(entry, null)); }
+            catch (Exception) { return 1f; }
+        }
+
+        internal static void SetUiScale(float scale)
+        {
+            object entry;
+            PropertyInfo value;
+            if (!ResolveUuvrConfigEntry("VrUiScale", out entry, out value)) return;
+
+            try { value.SetValue(entry, Mathf.Clamp(scale, 0.2f, 3f), null); }
+            catch (Exception) { }
+        }
+
+        internal static Vector2 GetUiOffset()
+        {
+            object entry;
+            PropertyInfo value;
+            if (!ResolveUuvrConfigEntry("VrUiPosition", out entry, out value)) return Vector2.zero;
+
+            try
+            {
+                Vector3 current = (Vector3)value.GetValue(entry, null);
+                return new Vector2(current.x, current.y);
+            }
+            catch (Exception) { return Vector2.zero; }
+        }
+
+        internal static void SetUiOffset(Vector2 offset)
+        {
+            object entry;
+            PropertyInfo value;
+            if (!ResolveUuvrConfigEntry("VrUiPosition", out entry, out value)) return;
+
+            try
+            {
+                // Only x and y are ours. z is how far the plane sits from your eyes, and that
+                // one belongs to UUVR.
+                Vector3 current = (Vector3)value.GetValue(entry, null);
+                value.SetValue(entry, new Vector3(
+                    Mathf.Clamp(offset.x, -2f, 2f),
+                    Mathf.Clamp(offset.y, -2f, 2f),
+                    current.z), null);
+            }
+            catch (Exception) { }
         }
 
         private static bool ResolveUuvrConfigEntry(string fieldName, out object entry, out PropertyInfo valueProperty)
@@ -745,7 +810,9 @@ namespace LiftoffFpvGoggles
 
             if (_cursorType == null) return;
 
-            bool wanted = !FpvGogglesPlugin.InMenu && FpvGogglesPlugin.VrActive;
+            // Off while the settings panel is open as well: the panel draws its own pointer onto
+            // its own canvas, and UUVR's software one is a second arrow in a different place.
+            bool wanted = !FpvGogglesPlugin.InMenu && FpvGogglesPlugin.VrActive && !SettingsMenu.IsOpen;
 
             UnityEngine.Object[] cursors = UnityEngine.Object.FindObjectsOfType(_cursorType);
             for (int i = 0; i < cursors.Length; i++)
@@ -767,6 +834,42 @@ namespace LiftoffFpvGoggles
             }
 
             FpvGogglesPlugin.Log.LogInfo("UUVR software cursor " + (wanted ? "on (VR flight)" : "off (menu or flat)") + ".");
+        }
+
+        private static bool _menuBroken;
+
+        /// <summary>
+        /// Guarded like the post processing: SettingsMenu builds a uGUI hierarchy from scratch,
+        /// and a game without those types would otherwise take the whole update loop with it.
+        /// </summary>
+        private static void UpdateSettingsMenu()
+        {
+            if (_menuBroken) return;
+
+            try
+            {
+                SettingsMenu.Update();
+            }
+            catch (Exception e)
+            {
+                _menuBroken = true;
+                FpvGogglesPlugin.Log.LogWarning("The settings menu stopped working: " + e.Message);
+            }
+        }
+
+        private static void ToggleSettingsMenu()
+        {
+            if (_menuBroken) return;
+
+            try
+            {
+                SettingsMenu.Toggle();
+            }
+            catch (Exception e)
+            {
+                _menuBroken = true;
+                FpvGogglesPlugin.Log.LogWarning("Could not open the settings menu: " + e.Message);
+            }
         }
 
         private static bool _postFxBroken;

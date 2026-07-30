@@ -84,7 +84,12 @@ $refs = @(
     "$managed\UnityEngine.VRModule.dll",  # XRSettings lives here, not in XRModule
     "$managed\UnityEngine.PhysicsModule.dll",  # line of sight check for the analog signal model
     "$managed\Unity.Postprocessing.Runtime.dll",  # the game's own post processing stack
-    "$managed\UnityEngine.AssetBundleModule.dll"  # loading the composite video shader
+    "$managed\UnityEngine.AssetBundleModule.dll",  # loading the composite video shader
+    "$managed\UnityEngine.UI.dll",  # the settings menu is built from these
+    "$managed\Unity.TextMeshPro.dll",
+    "$managed\UnityEngine.TextRenderingModule.dll",
+    "$managed\UnityEngine.IMGUIModule.dll",
+    "$managed\UnityEngine.InputLegacyModule.dll"  # the menu needs the mouse position
 )
 
 if ($BepInExDir) {
