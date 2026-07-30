@@ -614,6 +614,8 @@ namespace LiftoffFpvGoggles
                 }
             }
 
+            UuvrCanvasFix.Apply();
+
             Type inputTracking = AccessTools.TypeByName("UnityEngine.XR.InputTracking");
             if (inputTracking != null)
             {

@@ -594,8 +594,6 @@ namespace LiftoffFpvGoggles
 
             try { value.SetValue(entry, Mathf.Clamp(scale, 0.2f, 3f), null); }
             catch (Exception) { }
-
-            RepatchUuvrCanvases();
         }
 
         internal static Vector2 GetUiOffset()
@@ -629,8 +627,6 @@ namespace LiftoffFpvGoggles
                     current.z), null);
             }
             catch (Exception) { }
-
-            RepatchUuvrCanvases();
         }
 
         private static bool ResolveUuvrConfigEntry(string fieldName, out object entry, out PropertyInfo valueProperty)
@@ -730,50 +726,6 @@ namespace LiftoffFpvGoggles
             {
                 material.SetInt("unity_GUIZTestMode",
                     (int)(always ? CompareFunction.Always : CompareFunction.LessEqual));
-            }
-            catch (Exception) { }
-        }
-
-        /// <summary>
-        /// Puts back any canvas UUVR just dropped off the UI plane.
-        ///
-        /// UUVR decides whether to redirect a screen space camera canvas by asking whether that
-        /// canvas renders into a texture - but it asks the canvas as it is now, and once redirected
-        /// the answer is yes, because the capture camera renders into a texture. So every setting
-        /// change unpatches the game's HUD, and the change after that patches it again, because by
-        /// then it has been restored and the answer is no. One flicker per change is easy to miss.
-        /// A slider that writes a setting per frame turns it into a strobe.
-        ///
-        /// Nothing here forces anything: it asks UUVR's own question and, where the answer is yes,
-        /// does what UUVR would have done on the next change anyway - just without the frame in
-        /// between where the HUD is gone.
-        /// </summary>
-        private static void RepatchUuvrCanvases()
-        {
-            try
-            {
-                Type redirectType = AccessTools.TypeByName("Uuvr.VrUi.PatchModes.CanvasRedirect");
-                if (redirectType == null) return;
-
-                FieldInfo patchedField = AccessTools.Field(redirectType, "_isPatched");
-                MethodInfo shouldPatch = AccessTools.Method(redirectType, "ShouldPatchCanvas");
-                MethodInfo patch = AccessTools.Method(redirectType, "Patch");
-                if (patchedField == null || shouldPatch == null || patch == null) return;
-
-                UnityEngine.Object[] redirects = Resources.FindObjectsOfTypeAll(redirectType);
-                for (int i = 0; i < redirects.Length; i++)
-                {
-                    object redirect = redirects[i];
-                    if (redirect == null) continue;
-
-                    object patched = patchedField.GetValue(redirect);
-                    if (!(patched is bool) || (bool)patched) continue;
-
-                    object wanted = shouldPatch.Invoke(redirect, null);
-                    if (!(wanted is bool) || !(bool)wanted) continue;
-
-                    patch.Invoke(redirect, null);
-                }
             }
             catch (Exception) { }
         }
