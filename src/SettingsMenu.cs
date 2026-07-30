@@ -36,6 +36,10 @@ namespace LiftoffFpvGoggles
         // underneath it while it was closed.
         private static readonly List<Action> _refreshers = new List<Action>();
 
+        // Small per frame animations - the switch knobs sliding across, and nothing else so far.
+        // Registered by the row that owns them and dropped together with the panel.
+        private static readonly List<Action> _tickers = new List<Action>();
+
         internal static bool IsOpen { get { return _open; } }
 
         // ------------------------------------------------------------------
@@ -71,7 +75,49 @@ namespace LiftoffFpvGoggles
             UpdateCursor();
             UpdateScrolling();
             UpdateVisibility();
+            Tick();
             KeepOnTop();
+
+            // Re-applied rather than set once: UUVR reassigns the plane's shader on every setting
+            // change, and unity_GUIZTestMode is not a declared property, so it does not survive.
+            // Moving a slider in this panel is a setting change, which is the worst possible
+            // moment for the panel to sink back into the floor.
+            try { FpvGogglesRunner.SetUiPlaneAlwaysVisible(true); }
+            catch (Exception) { }
+        }
+
+        private static void Tick()
+        {
+            for (int i = 0; i < _tickers.Count; i++)
+            {
+                try { _tickers[i](); }
+                catch (Exception) { }
+            }
+        }
+
+        /// <summary>
+        /// Our own layers, out of the way of the panel.
+        ///
+        /// In VR the panel is not drawn over the picture at all - it is drawn into UUVR's capture
+        /// texture and shown on a quad inside the scene, at the ordinary canvas queue. Both the
+        /// analog overlay and the horizon are meshes we deliberately put above everything, so
+        /// both were landing on top of it: the snow and the sync bar washed the panel out, and the
+        /// horizon crossed it. Neither can be answered from this class, because sorting order only
+        /// settles arguments between canvases.
+        /// </summary>
+        private static void SetDrawnBehind(bool behind)
+        {
+            try { AnalogOverlay.SetBehindUi(behind); }
+            catch (Exception) { }
+
+            try { HorizonIndicator.SetBehindUi(behind); }
+            catch (Exception) { }
+
+            // And the floor, which is a different problem with the same symptom: the plane hangs
+            // a metre away and is depth tested, so looking down on the ground buries the lower
+            // half of the panel in the hangar floor.
+            try { FpvGogglesRunner.SetUiPlaneAlwaysVisible(behind); }
+            catch (Exception) { }
         }
 
         private static float _topTimer;
@@ -124,12 +170,15 @@ namespace LiftoffFpvGoggles
                 _savedLock = Cursor.lockState;
                 _savedCursorVisible = Cursor.visible;
 
+                SetDrawnBehind(true);
+
                 Refresh();
                 FpvGogglesPlugin.Log.LogInfo("Settings menu open.");
             }
             else
             {
                 RestorePointer();
+                SetDrawnBehind(false);
 
                 // Leaving the HUD blown up after closing would be a trap: you would fly off with
                 // a third more HUD than you set and no obvious way back.
@@ -143,6 +192,7 @@ namespace LiftoffFpvGoggles
                 _root = null;
                 _content = null;
                 _refreshers.Clear();
+                _tickers.Clear();
 
                 Cursor.lockState = _savedLock;
                 Cursor.visible = _savedCursorVisible;
@@ -185,13 +235,22 @@ namespace LiftoffFpvGoggles
             // No dimming layer behind the panel. It seemed like it would help the list read, and
             // in the headset it just puts a grey veil over the entire HUD - which is the one
             // thing you are still trying to see while the menu is open.
-            Image panel = NewImage("Panel", _root.transform, new Color(0.07f, 0.08f, 0.10f, 0.96f));
+            Image panel = NewRounded("Panel", _root.transform, PanelBack, 16);
             RectTransform panelRect = panel.rectTransform;
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.sizeDelta = new Vector2(920f, 760f);
             panelRect.anchoredPosition = Vector2.zero;
+
+            // Sits over the panel rather than replacing its corners, so the two shapes cannot
+            // disagree about where the edge is.
+            Image edge = NewImage("Edge", panelRect, PanelEdge);
+            edge.sprite = Outline();
+            edge.type = Image.Type.Sliced;
+            edge.fillCenter = false;
+            edge.raycastTarget = false;
+            Stretch(edge.rectTransform);
 
             BuildHeader(panelRect);
             BuildScrollArea(panelRect);
@@ -440,32 +499,44 @@ namespace LiftoffFpvGoggles
 
         private static void BuildHeader(RectTransform panel)
         {
-            TMPro.TextMeshProUGUI title = NewText("Title", panel, "FPV Goggles", 30, TextAnchor.MiddleLeft);
+            TMPro.TextMeshProUGUI title = NewText("Title", panel, "FPV Goggles", 25, TextAnchor.MiddleLeft);
+            title.color = TextPrimary;
+            title.fontStyle = TMPro.FontStyles.Bold;
             RectTransform rect = title.rectTransform;
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0.5f, 1f);
-            rect.offsetMin = new Vector2(28f, -70f);
-            rect.offsetMax = new Vector2(-140f, -18f);
+            rect.offsetMin = new Vector2(30f, -62f);
+            rect.offsetMax = new Vector2(-372f, -22f);
 
             TMPro.TextMeshProUGUI hint = NewText("Hint", panel,
-                "Changes apply straight away and are saved to the config file.", 15, TextAnchor.MiddleLeft);
-            hint.color = new Color(0.62f, 0.66f, 0.72f, 1f);
+                "Changes apply straight away and are saved to the config file.", 14, TextAnchor.MiddleLeft);
+            hint.color = TextMuted;
             RectTransform hintRect = hint.rectTransform;
             hintRect.anchorMin = new Vector2(0f, 1f);
             hintRect.anchorMax = new Vector2(1f, 1f);
             hintRect.pivot = new Vector2(0.5f, 1f);
-            hintRect.offsetMin = new Vector2(30f, -96f);
-            hintRect.offsetMax = new Vector2(-140f, -70f);
+            hintRect.offsetMin = new Vector2(31f, -88f);
+            hintRect.offsetMax = new Vector2(-372f, -64f);
 
             Button close = NewButton("Close", panel, "Close", delegate { SetOpen(false); });
-            PlaceHeaderButton(close, -22f, 104f);
+            PlaceHeaderButton(close, -26f, 88f);
 
             _zoomButton = NewButton("Zoom", panel, ZoomLabel(), delegate { ToggleZoom(); });
-            PlaceHeaderButton(_zoomButton, -134f, 128f);
+            PlaceHeaderButton(_zoomButton, -124f, 112f);
 
             Button reset = NewButton("Reset", panel, "Reset all", delegate { ResetAll(); });
-            PlaceHeaderButton(reset, -270f, 116f);
+            PlaceHeaderButton(reset, -246f, 104f);
+
+            // Separates the title from the list without a heavy bar across the panel.
+            Image line = NewImage("HeaderLine", panel, Divider);
+            line.raycastTarget = false;
+            RectTransform lineRect = line.rectTransform;
+            lineRect.anchorMin = new Vector2(0f, 1f);
+            lineRect.anchorMax = new Vector2(1f, 1f);
+            lineRect.pivot = new Vector2(0.5f, 1f);
+            lineRect.offsetMin = new Vector2(26f, -105f);
+            lineRect.offsetMax = new Vector2(-26f, -104f);
         }
 
         private static void PlaceHeaderButton(Button button, float x, float width)
@@ -474,8 +545,8 @@ namespace LiftoffFpvGoggles
             rect.anchorMin = new Vector2(1f, 1f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(1f, 1f);
-            rect.sizeDelta = new Vector2(width, 40f);
-            rect.anchoredPosition = new Vector2(x, -22f);
+            rect.sizeDelta = new Vector2(width, 34f);
+            rect.anchoredPosition = new Vector2(x, -26f);
         }
 
         // ------------------------------------------------------------------
@@ -520,11 +591,17 @@ namespace LiftoffFpvGoggles
         }
 
         /// <summary>
-        /// Every setting back to what it ships as, including the two that belong to UUVR.
+        /// Every setting on this panel back to what it ships as, including the two that belong to
+        /// UUVR.
         ///
         /// Worth more than it sounds: the sliders apply as you drag them, so a pass through the
         /// list to see what everything does leaves a trail of values nobody chose. This is the
         /// way back from that.
+        ///
+        /// Strictly what the panel shows, though. Resetting the whole file also cleared the
+        /// hidden HUD elements and every key binding - settings that are deliberately not in the
+        /// list, so nothing here even hinted they had gone, and the crosshair simply reappeared.
+        /// A reset button may only undo what the button's own screen can put back.
         /// </summary>
         private static void ResetAll()
         {
@@ -536,7 +613,10 @@ namespace LiftoffFpvGoggles
                     try
                     {
                         ConfigEntryBase entry = config[definition];
-                        if (entry != null && entry.DefaultValue != null) entry.BoxedValue = entry.DefaultValue;
+                        if (entry == null || entry.DefaultValue == null) continue;
+                        if (!IsShown(entry)) continue;
+
+                        entry.BoxedValue = entry.DefaultValue;
                     }
                     catch (Exception) { }
                 }
@@ -559,8 +639,8 @@ namespace LiftoffFpvGoggles
             RectTransform viewRect = viewport.GetComponent<RectTransform>();
             viewRect.anchorMin = new Vector2(0f, 0f);
             viewRect.anchorMax = new Vector2(1f, 1f);
-            viewRect.offsetMin = new Vector2(22f, 22f);
-            viewRect.offsetMax = new Vector2(-32f, -104f);
+            viewRect.offsetMin = new Vector2(20f, 20f);
+            viewRect.offsetMax = new Vector2(-34f, -116f);
 
             // RectMask2D rather than Mask: no stencil buffer, one less thing to go wrong on a
             // canvas somebody else is capturing.
@@ -570,9 +650,8 @@ namespace LiftoffFpvGoggles
             // under the pointer and then travels up the hierarchy - with nothing to hit inside
             // the viewport it lands on the panel behind instead, which is not the scroll view's
             // parent, so the list simply refused to move.
-            Image catcher = NewImage("Catcher", viewRect, new Color(0f, 0f, 0f, 0f));
+            Image catcher = NewHitArea("Catcher", viewRect);
             Stretch(catcher.rectTransform);
-            catcher.raycastTarget = true;
 
             GameObject content = NewUi("Content", viewRect);
             _content = content.GetComponent<RectTransform>();
@@ -587,8 +666,8 @@ namespace LiftoffFpvGoggles
             _content.anchoredPosition = Vector2.zero;
 
             VerticalLayoutGroup layout = content.AddComponent<VerticalLayoutGroup>();
-            layout.spacing = 6f;
-            layout.padding = new RectOffset(14, 14, 4, 4);
+            layout.spacing = 4f;
+            layout.padding = new RectOffset(6, 6, 2, 10);
             layout.childForceExpandHeight = false;
             layout.childForceExpandWidth = true;
             layout.childControlHeight = true;
@@ -655,19 +734,22 @@ namespace LiftoffFpvGoggles
         /// </summary>
         private static Scrollbar BuildScrollbar(RectTransform panel)
         {
-            Image track = NewImage("Scrollbar", panel, new Color(0.13f, 0.15f, 0.18f, 1f));
+            Image track = NewRounded("Scrollbar", panel, new Color(0.114f, 0.125f, 0.145f, 1f), 3);
             RectTransform trackRect = track.rectTransform;
             trackRect.anchorMin = new Vector2(1f, 0f);
             trackRect.anchorMax = new Vector2(1f, 1f);
             trackRect.pivot = new Vector2(1f, 0.5f);
-            trackRect.sizeDelta = new Vector2(12f, -126f);
-            trackRect.anchoredPosition = new Vector2(-8f, -11f);
+
+            // Top and bottom insets match the viewport's, so the bar starts and ends level with
+            // the list rather than floating past it.
+            trackRect.sizeDelta = new Vector2(6f, -136f);
+            trackRect.anchoredPosition = new Vector2(-14f, -48f);
 
             GameObject area = NewUi("SlidingArea", trackRect);
             RectTransform areaRect = area.GetComponent<RectTransform>();
             Stretch(areaRect);
 
-            Image handleImage = NewImage("Handle", areaRect, new Color(0.45f, 0.52f, 0.62f, 1f));
+            Image handleImage = NewRounded("Handle", areaRect, new Color(0.31f, 0.34f, 0.39f, 1f), 3);
             RectTransform handle = handleImage.rectTransform;
             handle.sizeDelta = Vector2.zero;
 
@@ -995,67 +1077,156 @@ namespace LiftoffFpvGoggles
 
         private static GameObject AddHeading(string text)
         {
-            GameObject row = NewRow(38f);
-            TMPro.TextMeshProUGUI heading = NewText("Heading", row.GetComponent<RectTransform>(),
-                text.ToUpper(), 17, TextAnchor.LowerLeft);
-            heading.color = new Color(0.45f, 0.78f, 0.95f, 1f);
+            GameObject row = NewRow(46f, false);
+            RectTransform rect = row.GetComponent<RectTransform>();
+
+            HorizontalLayoutGroup layout = row.GetComponent<HorizontalLayoutGroup>();
+            layout.padding = new RectOffset(16, 14, 0, 8);
+
+            // Small, spaced capitals rather than a colour. It reads as a heading without being
+            // the loudest thing on the panel.
+            TMPro.TextMeshProUGUI heading = NewText("Heading", rect, text.ToUpper(), 13, TextAnchor.LowerLeft);
+            heading.color = TextMuted;
+            heading.characterSpacing = 6f;
+            heading.fontStyle = TMPro.FontStyles.Bold;
             return row;
         }
 
+        /// <summary>
+        /// A sliding switch, not a tick box.
+        ///
+        /// The old one was a square that filled the row and put a green square inside it - big,
+        /// blunt, and it told you nothing at a glance about which way was on. A knob that sits
+        /// left or right reads correctly from the corner of your eye, which is how you read it
+        /// with a headset on.
+        /// </summary>
         private static GameObject AddToggleRow(string label, string tip, Func<bool> get, Action<bool> set)
         {
-            GameObject row = NewRow(34f);
+            GameObject row = NewRow(RowHeight, true);
             RectTransform rect = row.GetComponent<RectTransform>();
 
             AddLabel(rect, label, tip);
 
-            Image box = NewImage("Box", rect, new Color(0.16f, 0.18f, 0.22f, 1f));
-            SetLayout(box.gameObject, 46f);
+            Image hit = NewHitArea("Switch", rect);
+            SetLayout(hit.gameObject, 52f);
 
-            Image tick = NewImage("Tick", box.rectTransform, new Color(0.35f, 0.82f, 0.45f, 1f));
-            RectTransform tickRect = tick.rectTransform;
-            tickRect.anchorMin = new Vector2(0.5f, 0.5f);
-            tickRect.anchorMax = new Vector2(0.5f, 0.5f);
-            tickRect.sizeDelta = new Vector2(20f, 20f);
-            tickRect.anchoredPosition = Vector2.zero;
+            Image track = NewRounded("Track", hit.rectTransform, TrackBack, 13);
+            RectTransform trackRect = track.rectTransform;
+            track.raycastTarget = false;
+            trackRect.anchorMin = new Vector2(0.5f, 0.5f);
+            trackRect.anchorMax = new Vector2(0.5f, 0.5f);
+            trackRect.pivot = new Vector2(0.5f, 0.5f);
+            trackRect.sizeDelta = new Vector2(46f, 26f);
+            trackRect.anchoredPosition = Vector2.zero;
 
-            Toggle toggle = box.gameObject.AddComponent<Toggle>();
-            toggle.targetGraphic = box;
-            toggle.graphic = tick;
+            Image knob = NewCircle("Knob", trackRect, KnobOff, 20);
+            RectTransform knobRect = knob.rectTransform;
+            knob.raycastTarget = false;
+            knobRect.anchorMin = new Vector2(0.5f, 0.5f);
+            knobRect.anchorMax = new Vector2(0.5f, 0.5f);
+            knobRect.pivot = new Vector2(0.5f, 0.5f);
+            knobRect.sizeDelta = new Vector2(20f, 20f);
+
+            Toggle toggle = hit.gameObject.AddComponent<Toggle>();
+            toggle.targetGraphic = track;
+            toggle.graphic = null;
+            // Fully qualified: this class has a Toggle() method of its own, and the name of a
+            // method wins over the name of a type when both are in scope.
+            toggle.toggleTransition = UnityEngine.UI.Toggle.ToggleTransition.None;
             toggle.isOn = get();
             toggle.onValueChanged.AddListener(delegate(bool v) { set(v); });
+            Tint(toggle);
+
+            // Where the knob is right now, as opposed to where it belongs. Set outright here so
+            // the panel opens with the switches already in position rather than sliding into it.
+            float slide = toggle.isOn ? 1f : 0f;
+            ApplySwitch(knobRect, track, knob, slide);
+
+            _tickers.Add(delegate
+            {
+                if (track == null || knob == null) return;
+
+                float wanted = toggle.isOn ? 1f : 0f;
+                if (Mathf.Abs(slide - wanted) < 0.001f)
+                {
+                    if (slide != wanted) { slide = wanted; ApplySwitch(knobRect, track, knob, slide); }
+                    return;
+                }
+
+                slide = Mathf.Lerp(slide, wanted, 1f - Mathf.Exp(-20f * Time.unscaledDeltaTime));
+                ApplySwitch(knobRect, track, knob, slide);
+            });
 
             _refreshers.Add(delegate { toggle.isOn = get(); });
             return row;
         }
 
+        private static void ApplySwitch(RectTransform knobRect, Image track, Image knob, float slide)
+        {
+            knobRect.anchoredPosition = new Vector2(Mathf.Lerp(-10f, 10f, slide), 0f);
+            track.color = Color.Lerp(TrackBack, Accent, slide);
+            knob.color = Color.Lerp(KnobOff, KnobOn, slide);
+        }
+
+        /// <summary>
+        /// Hover and press feedback, kept to a brightness change. Anything more definite means
+        /// picking a second colour for every control, and they would all drift apart.
+        /// </summary>
+        private static void Tint(Selectable selectable)
+        {
+            ColorBlock colours = selectable.colors;
+            colours.normalColor = Color.white;
+            colours.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f);
+            colours.pressedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
+            colours.selectedColor = Color.white;
+            colours.fadeDuration = 0.08f;
+            selectable.colors = colours;
+        }
+
         private static GameObject AddSliderRow(string label, string tip, float min, float max, bool whole,
             Func<float> get, Action<float> set)
         {
-            GameObject row = NewRow(34f);
+            GameObject row = NewRow(RowHeight, true);
             RectTransform rect = row.GetComponent<RectTransform>();
 
             AddLabel(rect, label, tip);
 
-            TMPro.TextMeshProUGUI value = NewText("Value", rect, "", 16, TextAnchor.MiddleRight);
-            value.color = new Color(0.85f, 0.88f, 0.92f, 1f);
-            SetLayout(value.gameObject, 86f);
+            // The slider component sits on the full height cell so the whole strip is draggable,
+            // while the bar you see is a thin shape centred inside it. Aiming at a six pixel line
+            // through a headset is not a game anyone wants to play.
+            Image hit = NewHitArea("Slider", rect);
+            SetLayout(hit.gameObject, 300f);
 
-            Image track = NewImage("Track", rect, new Color(0.16f, 0.18f, 0.22f, 1f));
-            SetLayout(track.gameObject, 300f);
+            Image track = NewRounded("Bar", hit.rectTransform, TrackBack, 3);
+            RectTransform trackRect = track.rectTransform;
+            track.raycastTarget = false;
+            trackRect.anchorMin = new Vector2(0f, 0.5f);
+            trackRect.anchorMax = new Vector2(1f, 0.5f);
+            trackRect.pivot = new Vector2(0.5f, 0.5f);
 
-            Image fill = NewImage("Fill", track.rectTransform, new Color(0.30f, 0.55f, 0.80f, 1f));
+            // Inset by the handle's radius at each end, so the handle stays inside the cell at
+            // both extremes instead of hanging over the label next to it.
+            trackRect.sizeDelta = new Vector2(-18f, 6f);
+            trackRect.anchoredPosition = Vector2.zero;
+
+            Image fill = NewRounded("Fill", trackRect, Accent, 3);
             RectTransform fillRect = fill.rectTransform;
+            fill.raycastTarget = false;
             fillRect.anchorMin = Vector2.zero;
             fillRect.anchorMax = new Vector2(0f, 1f);
             fillRect.offsetMin = Vector2.zero;
             fillRect.offsetMax = Vector2.zero;
 
-            Image handle = NewImage("Handle", track.rectTransform, new Color(0.90f, 0.92f, 0.95f, 1f));
+            Image handle = NewCircle("Handle", trackRect, new Color(0.94f, 0.95f, 0.97f, 1f), 18);
             RectTransform handleRect = handle.rectTransform;
-            handleRect.sizeDelta = new Vector2(14f, 26f);
+            handle.raycastTarget = false;
+            handleRect.sizeDelta = new Vector2(18f, 12f);
 
-            Slider slider = track.gameObject.AddComponent<Slider>();
+            TMPro.TextMeshProUGUI value = NewText("Value", rect, "", 15, TextAnchor.MiddleRight);
+            value.color = TextValue;
+            SetLayout(value.gameObject, 72f);
+
+            Slider slider = hit.gameObject.AddComponent<Slider>();
             slider.fillRect = fillRect;
             slider.handleRect = handleRect;
             slider.targetGraphic = handle;
@@ -1064,6 +1235,7 @@ namespace LiftoffFpvGoggles
             slider.maxValue = max;
             slider.wholeNumbers = whole;
             slider.value = Mathf.Clamp(get(), min, max);
+            Tint(slider);
 
             value.text = Format(slider.value, whole);
             slider.onValueChanged.AddListener(delegate(float v)
@@ -1083,45 +1255,89 @@ namespace LiftoffFpvGoggles
 
         private static GameObject AddStepperRow(string label, string tip, Func<string> get, Action<int> step)
         {
-            GameObject row = NewRow(34f);
+            GameObject row = NewRow(RowHeight, true);
             RectTransform rect = row.GetComponent<RectTransform>();
 
             AddLabel(rect, label, tip);
 
             // Built before the buttons that change it, so both of their handlers can close over
             // it - the left one would otherwise capture a variable that is still null.
-            TMPro.TextMeshProUGUI value = NewText("Value", rect, get(), 16, TextAnchor.MiddleCenter);
-            value.color = new Color(0.85f, 0.88f, 0.92f, 1f);
+            TMPro.TextMeshProUGUI value = NewText("Value", rect, get(), 15, TextAnchor.MiddleCenter);
+            value.color = TextValue;
 
-            Button back = NewButton("Back", rect, "<", delegate { step(-1); value.text = get(); });
-            SetLayout(back.gameObject, 40f);
+            Button back = NewStepButton("Back", rect, "‹", delegate { step(-1); value.text = get(); });
 
             // Ordered so the arrows end up either side of the value.
             value.transform.SetSiblingIndex(back.transform.GetSiblingIndex() + 1);
-            SetLayout(value.gameObject, 160f);
+            SetLayout(value.gameObject, 150f);
 
-            Button forward = NewButton("Forward", rect, ">", delegate { step(1); value.text = get(); });
-            SetLayout(forward.gameObject, 40f);
+            NewStepButton("Forward", rect, "›", delegate { step(1); value.text = get(); });
 
             _refreshers.Add(delegate { value.text = get(); });
             return row;
         }
 
+        /// <summary>
+        /// One of the arrows either side of an enum. Same idea as the switch: a full height cell
+        /// to click, with a smaller rounded shape inside it to look at.
+        /// </summary>
+        private static Button NewStepButton(string name, RectTransform row, string glyph,
+            UnityEngine.Events.UnityAction click)
+        {
+            Image hit = NewHitArea(name, row);
+            SetLayout(hit.gameObject, 34f);
+
+            Image box = NewRounded("Box", hit.rectTransform, Surface, 8);
+            box.raycastTarget = false;
+            RectTransform boxRect = box.rectTransform;
+            boxRect.anchorMin = new Vector2(0.5f, 0.5f);
+            boxRect.anchorMax = new Vector2(0.5f, 0.5f);
+            boxRect.pivot = new Vector2(0.5f, 0.5f);
+            boxRect.sizeDelta = new Vector2(30f, 28f);
+            boxRect.anchoredPosition = Vector2.zero;
+
+            TMPro.TextMeshProUGUI text = NewText("Text", boxRect, glyph, 18, TextAnchor.MiddleCenter);
+            text.color = TextPrimary;
+            Stretch(text.rectTransform);
+
+            Button button = hit.gameObject.AddComponent<Button>();
+            button.targetGraphic = box;
+            button.onClick.AddListener(click);
+            Tint(button);
+
+            return button;
+        }
+
         private static void AddLabel(RectTransform row, string label, string tip)
         {
-            TMPro.TextMeshProUGUI text = NewText("Label", row, label, 17, TextAnchor.MiddleLeft);
-            text.color = new Color(0.88f, 0.90f, 0.93f, 1f);
+            TMPro.TextMeshProUGUI text = NewText("Label", row, label, 16, TextAnchor.MiddleLeft);
+            text.color = TextPrimary;
 
             LayoutElement layout = text.gameObject.AddComponent<LayoutElement>();
             layout.flexibleWidth = 1f;
             layout.minWidth = 200f;
         }
 
-        private static GameObject NewRow(float height)
+        /// <summary>
+        /// One line of the list. Control rows get a faint rounded plate behind them: it separates
+        /// them from each other, and it keeps the labels legible when the panel is sitting over a
+        /// bright sky rather than over a menu.
+        /// </summary>
+        private static GameObject NewRow(float height, bool surface)
         {
             GameObject row = NewUi("Row", _content);
 
+            if (surface)
+            {
+                Image background = row.AddComponent<Image>();
+                background.color = RowBack;
+                background.sprite = Rounded(8);
+                background.type = Image.Type.Sliced;
+                background.raycastTarget = true;
+            }
+
             HorizontalLayoutGroup layout = row.AddComponent<HorizontalLayoutGroup>();
+            layout.padding = new RectOffset(16, 14, 0, 0);
             layout.spacing = 10f;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = true;
@@ -1148,6 +1364,164 @@ namespace LiftoffFpvGoggles
         {
             if (whole) return Mathf.RoundToInt(value).ToString();
             return value.ToString(Mathf.Abs(value) < 10f ? "0.00" : "0.#");
+        }
+
+        // ------------------------------------------------------------------
+        // Colours and shapes
+        // ------------------------------------------------------------------
+
+        // One place for the palette, so nothing drifts.
+        //
+        // Every one of these is fully opaque, and that is not a style choice. The panel is drawn
+        // into UUVR's capture texture before it is shown on the plane, and Unity's UI blend does
+        // not accumulate alpha correctly into a texture: each translucent layer leaves the pixel
+        // *less* opaque than the one under it. So a panel at 97% with rows at 3.5% over it came
+        // out as a grey wash with a bright hangar showing through - the rows lighter than the
+        // panel they sat on, which is the giveaway. At alpha 1 the arithmetic has nothing to get
+        // wrong.
+        private static readonly Color PanelBack = new Color(0.078f, 0.086f, 0.102f, 1f);
+        private static readonly Color PanelEdge = new Color(0.20f, 0.22f, 0.26f, 1f);
+        private static readonly Color Divider = new Color(0.16f, 0.18f, 0.21f, 1f);
+        private static readonly Color RowBack = new Color(0.118f, 0.129f, 0.153f, 1f);
+        private static readonly Color Surface = new Color(0.157f, 0.173f, 0.204f, 1f);
+        private static readonly Color TrackBack = new Color(0.196f, 0.212f, 0.247f, 1f);
+        private static readonly Color Accent = new Color(0.35f, 0.60f, 0.85f, 1f);
+        private static readonly Color TextPrimary = new Color(0.90f, 0.92f, 0.95f, 1f);
+        private static readonly Color TextMuted = new Color(0.55f, 0.59f, 0.66f, 1f);
+        private static readonly Color TextValue = new Color(0.72f, 0.76f, 0.82f, 1f);
+        private static readonly Color KnobOff = new Color(0.60f, 0.64f, 0.70f, 1f);
+        private static readonly Color KnobOn = new Color(1f, 1f, 1f, 1f);
+
+        private const float RowHeight = 40f;
+
+        private static readonly Dictionary<int, Sprite> _roundedSprites = new Dictionary<int, Sprite>();
+        private static readonly Dictionary<int, Sprite> _circleSprites = new Dictionary<int, Sprite>();
+        private static Sprite _outlineSprite;
+
+        /// <summary>
+        /// How much of a pixel a rounded rectangle covers. Half a pixel of falloff at the edge is
+        /// all it takes to stop the corners looking like stairs.
+        /// </summary>
+        private static float Coverage(int x, int y, int size, float radius)
+        {
+            float px = x + 0.5f;
+            float py = y + 0.5f;
+            float cx = Mathf.Clamp(px, radius, size - radius);
+            float cy = Mathf.Clamp(py, radius, size - radius);
+            float dx = px - cx;
+            float dy = py - cy;
+            return Mathf.Clamp01(radius - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
+        }
+
+        private static Texture2D NewShapeTexture(int size)
+        {
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.hideFlags = HideFlags.HideAndDontSave;
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            return texture;
+        }
+
+        /// <summary>
+        /// A rounded rectangle, drawn once per radius and stretched by nine slice scaling.
+        ///
+        /// uGUI without a sprite draws nothing but hard cornered boxes, which is most of why the
+        /// old panel looked like a debug overlay. The whole shape is white; the colour comes from
+        /// the Image, so one texture serves every surface at that radius.
+        /// </summary>
+        private static Sprite Rounded(int radius)
+        {
+            Sprite cached;
+            if (_roundedSprites.TryGetValue(radius, out cached) && cached != null) return cached;
+
+            int size = radius * 2 + 2;
+            Texture2D texture = NewShapeTexture(size);
+            Color32[] pixels = new Color32[size * size];
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    byte alpha = (byte)Mathf.RoundToInt(255f * Coverage(x, y, size, radius));
+                    pixels[y * size + x] = new Color32(255, 255, 255, alpha);
+                }
+            }
+
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
+
+            // FullRect, not Tight: a tight mesh would trim the transparent corners away and the
+            // nine slice borders would then describe a rectangle that is no longer there.
+            Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f),
+                100f, 0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
+            sprite.hideFlags = HideFlags.HideAndDontSave;
+
+            _roundedSprites[radius] = sprite;
+            return sprite;
+        }
+
+        /// <summary>A plain disc, for switch knobs and slider handles.</summary>
+        private static Sprite Circle(int diameter)
+        {
+            Sprite cached;
+            if (_circleSprites.TryGetValue(diameter, out cached) && cached != null) return cached;
+
+            Texture2D texture = NewShapeTexture(diameter);
+            Color32[] pixels = new Color32[diameter * diameter];
+
+            for (int y = 0; y < diameter; y++)
+            {
+                for (int x = 0; x < diameter; x++)
+                {
+                    byte alpha = (byte)Mathf.RoundToInt(255f * Coverage(x, y, diameter, diameter * 0.5f));
+                    pixels[y * diameter + x] = new Color32(255, 255, 255, alpha);
+                }
+            }
+
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
+
+            Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, diameter, diameter),
+                new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            sprite.hideFlags = HideFlags.HideAndDontSave;
+
+            _circleSprites[diameter] = sprite;
+            return sprite;
+        }
+
+        /// <summary>
+        /// The panel's hairline, as a ring rather than a filled shape. Drawn sliced with the
+        /// centre left out, so the one pixel edge stays one pixel however far it is stretched.
+        /// </summary>
+        private static Sprite Outline()
+        {
+            if (_outlineSprite != null) return _outlineSprite;
+
+            const int radius = 16;
+            const float thickness = 1.4f;
+            int size = radius * 2 + 2;
+
+            Texture2D texture = NewShapeTexture(size);
+            Color32[] pixels = new Color32[size * size];
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float outer = Coverage(x, y, size, radius);
+                    float inner = Coverage(x, y, size, radius - thickness);
+                    byte alpha = (byte)Mathf.RoundToInt(255f * Mathf.Clamp01(outer - inner));
+                    pixels[y * size + x] = new Color32(255, 255, 255, alpha);
+                }
+            }
+
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
+
+            _outlineSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f),
+                100f, 0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
+            _outlineSprite.hideFlags = HideFlags.HideAndDontSave;
+            return _outlineSprite;
         }
 
         // ------------------------------------------------------------------
@@ -1178,6 +1552,34 @@ namespace LiftoffFpvGoggles
             GameObject part = NewUi(name, parent);
             Image image = part.AddComponent<Image>();
             image.color = colour;
+            return image;
+        }
+
+        private static Image NewRounded(string name, Transform parent, Color colour, int radius)
+        {
+            Image image = NewImage(name, parent, colour);
+            image.sprite = Rounded(radius);
+            image.type = Image.Type.Sliced;
+            return image;
+        }
+
+        private static Image NewCircle(string name, Transform parent, Color colour, int diameter)
+        {
+            Image image = NewImage(name, parent, colour);
+            image.sprite = Circle(diameter);
+            image.type = Image.Type.Simple;
+            image.preserveAspect = true;
+            return image;
+        }
+
+        /// <summary>
+        /// An invisible box that still catches clicks. Every control here is a small shape inside
+        /// a full height cell: the shape is what you look at, this is what you hit.
+        /// </summary>
+        private static Image NewHitArea(string name, Transform parent)
+        {
+            Image image = NewImage(name, parent, new Color(0f, 0f, 0f, 0f));
+            image.raycastTarget = true;
             return image;
         }
 
@@ -1217,20 +1619,16 @@ namespace LiftoffFpvGoggles
 
         private static Button NewButton(string name, Transform parent, string label, UnityEngine.Events.UnityAction click)
         {
-            Image background = NewImage(name, parent, new Color(0.20f, 0.23f, 0.28f, 1f));
+            Image background = NewRounded(name, parent, Surface, 8);
 
-            TMPro.TextMeshProUGUI text = NewText("Text", background.rectTransform, label, 16, TextAnchor.MiddleCenter);
+            TMPro.TextMeshProUGUI text = NewText("Text", background.rectTransform, label, 15, TextAnchor.MiddleCenter);
+            text.color = TextPrimary;
             Stretch(text.rectTransform);
 
             Button button = background.gameObject.AddComponent<Button>();
             button.targetGraphic = background;
             button.onClick.AddListener(click);
-
-            ColorBlock colours = button.colors;
-            colours.normalColor = Color.white;
-            colours.highlightedColor = new Color(1.3f, 1.3f, 1.3f, 1f);
-            colours.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f);
-            button.colors = colours;
+            Tint(button);
 
             return button;
         }

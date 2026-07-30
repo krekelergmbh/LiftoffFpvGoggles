@@ -594,6 +594,8 @@ namespace LiftoffFpvGoggles
 
             try { value.SetValue(entry, Mathf.Clamp(scale, 0.2f, 3f), null); }
             catch (Exception) { }
+
+            RepatchUuvrCanvases();
         }
 
         internal static Vector2 GetUiOffset()
@@ -627,6 +629,8 @@ namespace LiftoffFpvGoggles
                     current.z), null);
             }
             catch (Exception) { }
+
+            RepatchUuvrCanvases();
         }
 
         private static bool ResolveUuvrConfigEntry(string fieldName, out object entry, out PropertyInfo valueProperty)
@@ -651,6 +655,127 @@ namespace LiftoffFpvGoggles
 
             valueProperty = entry.GetType().GetProperty("Value");
             return valueProperty != null;
+        }
+
+        // ------------------------------------------------------------------
+        // UUVR's UI plane
+        // ------------------------------------------------------------------
+
+        private static Material _planeMaterial;
+
+        /// <summary>
+        /// The material of the quad UUVR shows the captured interface on. Everything the settings
+        /// panel has to reason about - what draws in front of it, and whether the floor can hide
+        /// it - is decided by this one material.
+        /// </summary>
+        internal static Material GetUiPlaneMaterial()
+        {
+            if (_planeMaterial != null) return _planeMaterial;
+
+            try
+            {
+                Type managerType = AccessTools.TypeByName("Uuvr.VrUi.VrUiManager");
+                if (managerType == null) return null;
+
+                FieldInfo rendererField = AccessTools.Field(managerType, "_vrUiRenderer");
+                if (rendererField == null) return null;
+
+                UnityEngine.Object[] managers = Resources.FindObjectsOfTypeAll(managerType);
+                for (int i = 0; i < managers.Length; i++)
+                {
+                    Renderer renderer = rendererField.GetValue(managers[i]) as Renderer;
+                    if (renderer == null) continue;
+
+                    _planeMaterial = renderer.material;
+                    return _planeMaterial;
+                }
+            }
+            catch (Exception) { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The queue the plane draws at. UUVR has a setting for it - it is 5000 out of the box,
+        /// not the 3000 a canvas material would suggest - so anything of ours that has to be
+        /// under the plane has to ask rather than assume.
+        /// </summary>
+        internal static int GetUiPlaneQueue()
+        {
+            Material material = GetUiPlaneMaterial();
+            if (material != null) return material.renderQueue;
+
+            Material canvasMaterial = Canvas.GetDefaultCanvasMaterial();
+            return canvasMaterial != null ? canvasMaterial.renderQueue : 3000;
+        }
+
+        /// <summary>
+        /// Takes the depth test off the UI plane, or puts it back.
+        ///
+        /// The plane hangs a metre in front of your eyes, and it is depth tested like any other
+        /// quad - so with the drone on the ground and the camera tilted down, the floor is nearer
+        /// than the plane and cuts the bottom off the settings panel. Which is precisely when you
+        /// are most likely to be reading it.
+        ///
+        /// UI/Default reads its depth function from unity_GUIZTestMode, which is not a declared
+        /// property, so it can only be set blind - HasProperty answers false for it even on the
+        /// shader that uses it.
+        /// </summary>
+        internal static void SetUiPlaneAlwaysVisible(bool always)
+        {
+            Material material = GetUiPlaneMaterial();
+            if (material == null) return;
+
+            try
+            {
+                material.SetInt("unity_GUIZTestMode",
+                    (int)(always ? CompareFunction.Always : CompareFunction.LessEqual));
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// Puts back any canvas UUVR just dropped off the UI plane.
+        ///
+        /// UUVR decides whether to redirect a screen space camera canvas by asking whether that
+        /// canvas renders into a texture - but it asks the canvas as it is now, and once redirected
+        /// the answer is yes, because the capture camera renders into a texture. So every setting
+        /// change unpatches the game's HUD, and the change after that patches it again, because by
+        /// then it has been restored and the answer is no. One flicker per change is easy to miss.
+        /// A slider that writes a setting per frame turns it into a strobe.
+        ///
+        /// Nothing here forces anything: it asks UUVR's own question and, where the answer is yes,
+        /// does what UUVR would have done on the next change anyway - just without the frame in
+        /// between where the HUD is gone.
+        /// </summary>
+        private static void RepatchUuvrCanvases()
+        {
+            try
+            {
+                Type redirectType = AccessTools.TypeByName("Uuvr.VrUi.PatchModes.CanvasRedirect");
+                if (redirectType == null) return;
+
+                FieldInfo patchedField = AccessTools.Field(redirectType, "_isPatched");
+                MethodInfo shouldPatch = AccessTools.Method(redirectType, "ShouldPatchCanvas");
+                MethodInfo patch = AccessTools.Method(redirectType, "Patch");
+                if (patchedField == null || shouldPatch == null || patch == null) return;
+
+                UnityEngine.Object[] redirects = Resources.FindObjectsOfTypeAll(redirectType);
+                for (int i = 0; i < redirects.Length; i++)
+                {
+                    object redirect = redirects[i];
+                    if (redirect == null) continue;
+
+                    object patched = patchedField.GetValue(redirect);
+                    if (!(patched is bool) || (bool)patched) continue;
+
+                    object wanted = shouldPatch.Invoke(redirect, null);
+                    if (!(wanted is bool) || !(bool)wanted) continue;
+
+                    patch.Invoke(redirect, null);
+                }
+            }
+            catch (Exception) { }
         }
 
         // ------------------------------------------------------------------

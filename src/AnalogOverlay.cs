@@ -37,6 +37,60 @@ namespace LiftoffFpvGoggles
             internal MeshFilter Filter;
             internal Material Material;
             internal bool HasTint;
+
+            /// <summary>Where this layer normally draws, so it can be put back after a detour.</summary>
+            internal int Queue;
+        }
+
+        /// <summary>
+        /// Puts every layer behind UUVR's UI plane, or back where it belongs.
+        ///
+        /// The settings panel is drawn into UUVR's capture texture and shown on that plane, which
+        /// is an ordinary transparent quad at the default canvas queue. These layers sit at 5002
+        /// and above, so they were painted straight over the panel - the snow, the vignette and
+        /// the sync bar included. Nothing about that is visible in the panel's own code, which is
+        /// why it looked like a filter had leaked into the menu.
+        ///
+        /// Dropping below the plane rather than lifting the plane keeps this entirely on our side
+        /// of the fence. The world still gets the full treatment while the panel is open; only
+        /// transparent scene geometry, which shares the plane's queue, now draws over the layers
+        /// for as long as you are in the menu.
+        /// </summary>
+        internal static void SetBehindUi(bool behind)
+        {
+            if (_behindUi == behind) return;
+            _behindUi = behind;
+            ApplyQueues();
+        }
+
+        private static bool _behindUi;
+
+        private static void ApplyQueues()
+        {
+            ApplyQueue(_vignette);
+            ApplyQueue(_static);
+            ApplyQueue(_scanlines);
+            ApplyQueue(_band);
+        }
+
+        private static void ApplyQueue(Layer layer)
+        {
+            if (layer == null || layer.Material == null) return;
+            layer.Material.renderQueue = _behindUi ? BehindUiQueue(layer.Queue) : layer.Queue;
+        }
+
+        /// <summary>
+        /// Just under the UI plane, keeping the layers in their own order.
+        ///
+        /// The plane's queue is read off the plane, not guessed. UUVR has a setting for it and
+        /// ships at 5000 - two below where these layers sit, which is exactly why they were
+        /// painting over the panel by such a small margin.
+        /// </summary>
+        private static int BehindUiQueue(int queue)
+        {
+            // Still well clear of opaque geometry at 2000, so the world keeps the overlay.
+            int plane = Mathf.Max(2200, FpvGogglesRunner.GetUiPlaneQueue());
+            return plane - 100 + (queue - 5000);
         }
 
         // ------------------------------------------------------------------
@@ -429,6 +483,10 @@ namespace LiftoffFpvGoggles
             _scanlines = NewLayer("Scanlines", _scanlineTexture, 5004, TextureWrapMode.Repeat, FilterMode.Bilinear);
             _band = NewLayer("SyncBar", _bandTexture, 5005, TextureWrapMode.Clamp, FilterMode.Bilinear);
 
+            // Rebuilt layers have to learn where the panel currently is, or opening the menu once
+            // and flying on would leave them below the plane for good.
+            ApplyQueues();
+
             _builtHalfWidth = -1f;
         }
 
@@ -452,6 +510,11 @@ namespace LiftoffFpvGoggles
             Layer layer = new Layer();
             layer.Object = part;
             layer.Material = material;
+
+            // Kept on the layer as well as on the material: the material's queue is moved about
+            // while the settings panel is open, so it cannot be asked where it started.
+            layer.Queue = queue;
+
             layer.Filter = part.AddComponent<MeshFilter>();
             layer.HasTint = material.HasProperty("_Color") || material.HasProperty("_TintColor");
 

@@ -21,6 +21,9 @@ namespace LiftoffFpvGoggles
         private static Material _outlineMaterial;
         private static Camera _camera;
 
+        private const int OutlineQueue = 6006;
+        private const int LineQueue = 6007;
+
         private static float _builtHalfWidth, _builtHalfHeight, _builtDistance;
         private static float _builtWidth, _builtGap, _builtThickness, _builtScale;
         private static IndicatorColour _builtColour;
@@ -134,8 +137,9 @@ namespace LiftoffFpvGoggles
 
             // Two materials for one colour scheme, because the only thing separating the black
             // edge from the line on top of it is the render queue.
-            if (_outlineMaterial == null) _outlineMaterial = CreateMaterial(6006);
-            if (_material == null) _material = CreateMaterial(6007);
+            if (_outlineMaterial == null) _outlineMaterial = CreateMaterial(OutlineQueue);
+            if (_material == null) _material = CreateMaterial(LineQueue);
+            ApplyQueues();
 
             // The outline is a child of the bar, so it rolls and slides with it for free.
             _bar = NewPart("Bar", _root.transform, _material).transform;
@@ -316,6 +320,42 @@ namespace LiftoffFpvGoggles
             if (material.HasProperty("_Cull")) material.SetInt("_Cull", (int)CullMode.Off);
 
             return material;
+        }
+
+        /// <summary>
+        /// Puts the indicator behind UUVR's UI plane while the settings panel is open.
+        ///
+        /// At 6006 and 6007 it draws over everything on purpose - it is the one thing that has to
+        /// stay readable when the picture does not. That same rule put it over the settings panel,
+        /// which is drawn onto the plane at the ordinary canvas queue, and no amount of sorting
+        /// order on the panel's canvas can answer a mesh that is not a canvas at all.
+        ///
+        /// The cost is honest: while the panel is open the centre mark is behind it. The bar still
+        /// shows wherever the plane is transparent, which is everywhere the panel is not.
+        /// </summary>
+        internal static void SetBehindUi(bool behind)
+        {
+            if (_behindUi == behind) return;
+            _behindUi = behind;
+            ApplyQueues();
+        }
+
+        private static bool _behindUi;
+
+        private static void ApplyQueues()
+        {
+            // Read off the plane rather than assumed - UUVR keeps its own render queue setting.
+            int plane = Mathf.Max(2200, FpvGogglesRunner.GetUiPlaneQueue());
+
+            if (_outlineMaterial != null)
+            {
+                _outlineMaterial.renderQueue = _behindUi ? plane - 20 : OutlineQueue;
+            }
+
+            if (_material != null)
+            {
+                _material.renderQueue = _behindUi ? plane - 19 : LineQueue;
+            }
         }
 
         internal static void Teardown()
