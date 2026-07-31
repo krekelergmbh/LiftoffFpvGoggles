@@ -382,7 +382,7 @@ namespace LiftoffFpvGoggles
                     new AcceptableValueRange<float>(0.0005f, 0.1f)));
 
             HorizonScale = Config.Bind(
-                "Horizon", "Scale", 1f,
+                "Horizon", "Scale", 0.5f,
                 new ConfigDescription("Master size factor over width and thickness together, so the whole indicator can be resized with one key.",
                     new AcceptableValueRange<float>(0.1f, 3f)));
 
