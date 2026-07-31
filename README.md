@@ -10,7 +10,7 @@ game into a headset; this plugin makes it behave like goggles rather than like V
 ## Why
 
 In VR the camera follows your head. Real goggles are a screen strapped to your face showing what
-the drone's camera sees — turning your head changes nothing. Head tracking gives you a way to look
+the drone's camera sees - turning your head changes nothing. Head tracking gives you a way to look
 around that you will not have on the field, and it quietly makes the sim easier than the thing it
 is simulating.
 
@@ -22,7 +22,7 @@ is simulating.
 * **Resizable HUD.** In a VR flight the game's HUD moves onto a plane you can size and position.
 * **Betaflight-style artificial horizon.** A rolling bar with a fixed centre mark, compensated for
   the FPV camera's upward tilt. One key cycles its colour when the map swallows it.
-* **Hide HUD elements** by name — the crosshair, the stick indicators, the recording icon, or all
+* **Hide HUD elements** by name - the crosshair, the stick indicators, the recording icon, or all
   of it.
 * **Settings menu you can use with the headset on.** `F10`, then the mouse. See
   [Settings menu](#settings-menu).
@@ -32,7 +32,7 @@ is simulating.
 
 * **Real composite video.** The picture is encoded into an analog signal, spoiled, and decoded
   again. Dot crawl, rainbow patterns, colour smear and colour dying before the picture does are
-  not drawn on — they are what is left over. See [Composite Video](#composite-video).
+  not drawn on - they are what is left over. See [Composite Video](#composite-video).
 * **A radio link that behaves like one.** Snow rises with distance, a building between you and the
   drone costs you the picture, a level drone overhead sits in the antenna's null. See
   [Analog Video](#analog-video-optional-off).
@@ -41,7 +41,7 @@ is simulating.
 
 Optional, off by default:
 
-* **Goggle mask** — a black border cutting the picture down to a real goggle's field of view.
+* **Goggle mask** - a black border cutting the picture down to a real goggle's field of view.
 
 ## Requirements
 
@@ -49,7 +49,7 @@ Optional, off by default:
 |---|---|
 | Game | Liftoff: Micro Drones (tested against build 1.1.1, Unity 2022.3) |
 | Mod loader | BepInEx 5 (x64, Mono) |
-| Dependency | UUVR 0.4.0 (`raicuparta.uuvr-modern`) — hard dependency |
+| Dependency | UUVR 0.4.0 (`raicuparta.uuvr-modern`) - hard dependency |
 | Easiest setup | [Rai Pal](https://github.com/Raicuparta/rai-pal) installs both for you |
 
 Tested with a Meta Quest 2 over Link and SteamVR (UUVR set to OpenVR).
@@ -83,7 +83,7 @@ Copy `LiftoffFpvGoggles.dll` and `fpvanalog` into the BepInEx folder Rai Pal cre
 %APPDATA%\raicuparta\rai-pal\data\installed-mods\<game id>\bepinex\BepInEx\plugins\LiftoffFpvGoggles\
 ```
 
-The `<game id>` is a long number — pick the folder that already contains
+The `<game id>` is a long number - pick the folder that already contains
 `plugins\uuvr-mono-modern`.
 </details>
 
@@ -109,12 +109,12 @@ To remove it: `.\install.ps1 -Uninstall`. Your settings file stays.
 | `F9` | Horizon colour: white → green → red → yellow → off |
 | `F10` | Settings menu |
 
-Everything else is unbound. HUD size and position, the goggle mask, the horizon size — all of it
+Everything else is unbound. HUD size and position, the goggle mask, the horizon size - all of it
 used to have a key, and the menu is a better place for it. The bindings are still in the config
 file if you want them back.
 
 Keys go through `GetAsyncKeyState`, as UUVR does it, so they work whatever input system the game
-uses. **The game receives the same press** — `F4`, `F5`, `F11` and `F12` toggle Liftoff's own HUD
+uses. **The game receives the same press** - `F4`, `F5`, `F11` and `F12` toggle Liftoff's own HUD
 and are left free here. All goggle keys are ignored in menus.
 
 `F6` is session-only and never written to the config file; a quick A/B during one flight should
@@ -130,7 +130,7 @@ so the menu cannot fall behind the settings. Changes apply as you make them.
 **Read it** doubles the HUD plane while the menu is open and puts it back on close. **Close** is
 also `F10` again.
 
-Rows come and go with what they depend on — switch composite video off and the settings it owns
+Rows come and go with what they depend on - switch composite video off and the settings it owns
 disappear, because a slider that currently changes nothing reads as a broken mod.
 
 Key bindings and the head tracking switches are deliberately not in the menu. A slider cannot
@@ -143,7 +143,7 @@ A profile is a named copy of everything the menu shows, kept in
 
 | | |
 |---|---|
-| **Default** | Not a stored profile — what the mod ships with. Choosing it is the reset button. |
+| **Default** | Not a stored profile - what the mod ships with. Choosing it is the reset button. |
 | **Save as new** | Shown while Default is selected. Starts a numbered profile. |
 | **Save** | Overwrites the selected profile. |
 | **Delete** | Removes it and goes back to Default. |
@@ -151,7 +151,7 @@ A profile is a named copy of everything the menu shows, kept in
 Numbered rather than named because there is no keyboard in a headset. Rename a profile by editing
 its heading in the file.
 
-A profile holds what the panel shows plus the HUD plane's size and position — not key bindings,
+A profile holds what the panel shows plus the HUD plane's size and position - not key bindings,
 not the hidden HUD elements, not the head tracking switches. Loading one starts from the defaults
 and applies the profile over them, so a profile written before a setting existed leaves it at its
 default.
@@ -206,7 +206,7 @@ Useful names in Liftoff: `Center` (the crosshair), `ArmedDisplay` (crosshair plu
 | `Colour` | `White` | White, Green, Red, Yellow or Off. `F9` cycles it. |
 | `Bar Width`, `Centre Gap`, `Line Thickness` | | Shape of the indicator. |
 
-No single colour works everywhere — white vanishes against a bright sky or a concrete hall, and
+No single colour works everywhere - white vanishes against a bright sky or a concrete hall, and
 the map decides that, not you. Hence the cycle key, with `Off` as part of the cycle.
 
 `Camera Tilt` is worth a note. A real OSD draws the **craft's** attitude and knows nothing about
@@ -246,7 +246,7 @@ pilot's position is taken from where the drone spawns, and three things drive th
 antenna behaves more like `120`, a decent 400 mW setup several times that. Turn on `Log Signal`,
 fly out, set it to match your own gear.
 
-With composite video on, the static and scanlines here switch themselves off — they were standing
+With composite video on, the static and scanlines here switch themselves off - they were standing
 in for a signal that is now being decoded for real.
 
 ### Composite Video
@@ -270,7 +270,7 @@ Ships as a compiled shader in `fpvanalog`, next to the plugin DLL.
 | `Softness` | `0` | How much brightness detail is given up. |
 | `Affects HUD` | `false` | On, the HUD and horizon go through the link too. |
 
-**`Signal Lines` is not 480 on purpose.** Analog video has 480 lines, but they fill a 46° goggle —
+**`Signal Lines` is not 480 on purpose.** Analog video has 480 lines, but they fill a 46° goggle -
 about ten lines per degree. A headset spreads the picture over roughly a hundred degrees, so 480
 would look half as sharp as the real thing. A thousand matches the angular sharpness. Switch the
 goggle mask on and 480 is right again.
@@ -278,14 +278,14 @@ goggle mask on and 480 is right again.
 It is also the frame rate knob: the decode runs at this resolution rather than the headset's.
 
 > Two things to get right if you build on the shader. Colour is **band-limited before it is
-> modulated**, as a real encoder does — skip that and full-detail colour lands back in the
+> modulated**, as a real encoder does - skip that and full-detail colour lands back in the
 > brightness one subcarrier period away, which shows as every edge doubled. And brightness is
 > recovered by **subtracting the decoded colour from the untouched signal**, not by averaging:
 > averaging is a twelve-pixel blur, subtraction is sharp and leaves the dot crawl where it belongs.
 
 ### Analog Image
 
-Colour, lens shape, blown highlights, exposure — the half that needs the rendered image read back.
+Colour, lens shape, blown highlights, exposure - the half that needs the rendered image read back.
 Runs through **Liftoff's own copy of Post Processing Stack v2**, so it needs no custom shader.
 
 | Setting | Default | Meaning |
@@ -301,14 +301,14 @@ Runs through **Liftoff's own copy of Post Processing Stack v2**, so it needs no 
 | `Auto Exposure` | `true` | Gain hunting for an exposure when you pitch into the sky. |
 
 The split between this section and the two above: **the radio link is done for real by the
-composite pass, the camera and the lens live here.** Where they overlap the composite pass wins —
+composite pass, the camera and the lens live here.** Where they overlap the composite pass wins -
 `Colour Loss` and `Chromatic Aberration` do nothing while it runs.
 
 `Colour Loss` still matters with composite video off. On a real link the chroma subcarrier dies
 before the luma, so a fading picture goes black and white while staying readable, and the colour
 coming back is how you know you are clear again.
 
-> Post processing at headset resolution is not free, and the composite pass runs before it — its
+> Post processing at headset resolution is not free, and the composite pass runs before it - its
 > noise goes through the bloom too. If the frame rate suffers: `Signal Lines` down first, `Bloom`
 > to `0` second, `Auto Exposure` off third.
 
@@ -345,7 +345,7 @@ UUVR recreates itself in `UuvrCore.OnDestroy()`, and so does this plugin. Two co
 | XR eye texture | 2544 × 2564 | 0.99 |
 
 UUVR's capture camera renders into a near-square target while the menu is laid out for 16:9, so
-only part of it is captured. Scaling does not help — the crop scales with it, because it happens at
+only part of it is captured. Scaling does not help - the crop scales with it, because it happens at
 capture time. Neither does head movement: UUVR pins the menu plane to the camera via
 `FollowTarget`. Hence holding VR off in menus entirely.
 
@@ -355,7 +355,7 @@ capture time. Neither does head movement: UUVR pins the menu plane to the camera
 |---|---|
 | `None` | No UI on the VR plane |
 | `Mirror` | A copy of the **whole screen** on the plane, on top of the world |
-| `CanvasRedirect` | Only the canvases — the HUD, resizable |
+| `CanvasRedirect` | Only the canvases - the HUD, resizable |
 
 `CanvasRedirect` is right during a flight but must not stay on outside one: it re-parents the
 canvases to UUVR's capture camera with `RenderMode.ScreenSpaceCamera`, and when that camera is not
@@ -373,7 +373,7 @@ no URP, no HDRP runtime                                                ← built
 ```
 
 The second line is the one that matters. Unity strips shaders nothing references, so a package
-being present is not enough — it has to be *used*. Because Liftoff grades with PPv2, every effect
+being present is not enough - it has to be *used*. Because Liftoff grades with PPv2, every effect
 shader is in the build, and a plugin gets colour grading, chromatic aberration, lens distortion,
 bloom and auto exposure through `PostProcessManager.QuickVolume`.
 
@@ -389,7 +389,7 @@ Adding a `PostProcessLayer` to a camera yourself:
 `fpvanalog` is built from [unity/](unity/) by [build-bundle.ps1](build-bundle.ps1), which drives
 Unity in batch mode. It is committed, so a normal `build.ps1` needs no Unity.
 
-* **Match the game's Unity version.** Liftoff is on 2022.3.62f3 — it is in
+* **Match the game's Unity version.** Liftoff is on 2022.3.62f3 - it is in
   `<game>_Data/globalgamemanagers` as plain text near the start. An older 2022.3 patch is safe, a
   newer one is the direction that breaks.
 * **Unity Personal is free but must be activated.** Installing the editor without Unity Hub leaves
@@ -408,7 +408,7 @@ types.
 ### A bug in UUVR that only shows when settings change quickly
 
 `CanvasRedirect.ShouldPatchCanvas` decides whether a screen space camera canvas belongs on the VR
-plane by asking whether it renders into a texture. It asks the canvas **as it stands** — and once
+plane by asking whether it renders into a texture. It asks the canvas **as it stands** - and once
 redirected, its camera *is* the capture camera, which renders into a texture. So the answer flips,
 the game's HUD is dropped off the plane, and the next change puts it back.
 
@@ -417,7 +417,7 @@ into a strobe, which is how this was found.
 
 The fix corrects the question, not the answer: while the check runs, the canvas is handed back the
 camera it had before redirection, and gets the capture camera back straight after. Nothing renders
-in between — it is one synchronous call — and UUVR's own decision is untouched.
+in between - it is one synchronous call - and UUVR's own decision is untouched.
 
 Only canvases whose **original** render mode was `ScreenSpaceCamera` are affected, which is why the
 settings panel sat still while the HUD blinked next to it.
@@ -429,12 +429,12 @@ an empty texture that squares it: a layer drawn at 0.97 leaves 0.94 behind, and 
 takes another bite.
 
 The settings panel goes into UUVR's capture texture before it reaches the plane. At 97% with row
-plates at 3.5% over it, it came out as a grey wash — and the **row plates were lighter than the
+plates at 3.5% over it, it came out as a grey wash - and the **row plates were lighter than the
 panel they sat on**, which is the giveaway. A filter would have hit both equally.
 
 Staggering the alphas cancels it exactly: panel at the square root of the opacity you want,
 everything above at that opacity. `sqrt(t)` squared is `t`, and a layer at `t` over an accumulated
-`t` leaves `t*t + t*(1-t)`, which is `t` again. Not used here in the end — 12% of a bright hangar
+`t` leaves `t*t + t*(1-t)`, which is `t` again. Not used here in the end - 12% of a bright hangar
 through a dark panel reads as grey paint rather than glass.
 
 ### Render queues, and who is on top of whom
@@ -443,11 +443,11 @@ through a dark panel reads as grey paint rather than glass.
 |---|---|
 | Goggle mask | 5000 |
 | UUVR's UI plane | 5000 (its own `VR UI Render Queue` setting) |
-| Analog overlay layers | 5002 – 5005 |
+| Analog overlay layers | 5002 - 5005 |
 | Horizon indicator | 6006 / 6007 |
 
-The settings panel is drawn onto that plane, so the analog overlay was painting over it — by two
-queue counts — and the horizon crossed it. **Canvas sorting order cannot answer either**: it only
+The settings panel is drawn onto that plane, so the analog overlay was painting over it - by two
+queue counts - and the horizon crossed it. **Canvas sorting order cannot answer either**: it only
 orders canvases against each other, and both of those are meshes. While the panel is open both drop
 below the plane's queue, which is read off the plane rather than assumed.
 
@@ -475,7 +475,7 @@ open, re-applied every frame: UUVR reassigns the plane's shader on every setting
 * Overlay quads are wound one way only. Winding both ways to defeat backface culling doubles the
   strength of a transparent quad, because the second pass blends on top of the first.
 * `Sprites/Default` multiplies by the vertex colour, and a mesh with no colour stream can arrive as
-  transparent black — an invisible layer with no error anywhere.
+  transparent black - an invisible layer with no error anywhere.
 * **Put colour in the mesh, not on the material.** `Hidden/Internal-Colored`, which is what the
   horizon indicator gets in Liftoff, has no `_Color` property and returns the vertex colour. It was
   only white because Unity feeds white for a missing colour stream. `mesh.colors32` works whatever
@@ -520,7 +520,7 @@ open, re-applied every frame: UUVR reassigns the plane's shader on every setting
 .\build.ps1
 ```
 
-No .NET SDK required — it uses `csc.exe` from the .NET Framework that ships with Windows. That
+No .NET SDK required - it uses `csc.exe` from the .NET Framework that ships with Windows. That
 compiler only speaks **C# 5**: no `nameof`, no string interpolation, no `?.`.
 
 Game and BepInEx folders are detected automatically. Override them if needed:
@@ -563,7 +563,7 @@ It finds a Unity 2022.3 editor and drives it in batch mode. See
 | [unity/Assets/Shaders/FpvComposite.shader](unity/Assets/Shaders/FpvComposite.shader) | The encode and decode |
 
 The plugin is compiled against the **game's** assemblies (.NET Standard 2.1), not the compiler's
-framework — hence `/nostdlib+` plus Unity's `mscorlib` and `netstandard`. Without it the build
+framework - hence `/nostdlib+` plus Unity's `mscorlib` and `netstandard`. Without it the build
 fails with `CS0012: System.Object ... netstandard 2.1`. The resulting DLL referencing mscorlib in
 two versions is normal: the 2.0.0.0 references come from Harmony's and BepInEx's signatures, and
 Mono resolves by simple name.
@@ -575,4 +575,4 @@ getting a flat Unity game into a headset. This plugin only bends it towards FPV.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
