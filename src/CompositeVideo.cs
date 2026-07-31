@@ -1,9 +1,8 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.Rendering.PostProcessing;
 
 namespace LiftoffFpvGoggles

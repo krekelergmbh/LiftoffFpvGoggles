@@ -1,5 +1,4 @@
-using System;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace LiftoffFpvGoggles
@@ -345,7 +344,7 @@ namespace LiftoffFpvGoggles
         private static void ApplyQueues()
         {
             // Read off the plane rather than assumed - UUVR keeps its own render queue setting.
-            int plane = Mathf.Max(2200, FpvGogglesRunner.GetUiPlaneQueue());
+            int plane = Mathf.Max(FpvGogglesRunner.LowestOverlayQueue, FpvGogglesRunner.GetUiPlaneQueue());
 
             if (_outlineMaterial != null)
             {

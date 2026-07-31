@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
@@ -44,7 +44,7 @@ namespace LiftoffFpvGoggles
         Off = 4,
     }
 
-    [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.9.0")]
+    [BepInPlugin(Guid, "Liftoff FPV Goggles", "4.10.0")]
     [BepInDependency("raicuparta.uuvr-modern", BepInDependency.DependencyFlags.HardDependency)]
     public class FpvGogglesPlugin : BaseUnityPlugin
     {
@@ -62,6 +62,7 @@ namespace LiftoffFpvGoggles
         internal static ConfigEntry<bool> KeepVrOffInMenus;
         internal static ConfigEntry<string> MenuSceneNames;
         internal static ConfigEntry<HotKey> ToggleMenuKey;
+        internal static ConfigEntry<string> ActiveProfile;
 
         // --- Head tracking (the actual point of this mod) ---
         internal static ConfigEntry<bool> LockRotation;
@@ -258,6 +259,13 @@ namespace LiftoffFpvGoggles
             ToggleMenuKey = Config.Bind(
                 "General", "Settings Menu Key", HotKey.F10,
                 "Opens a settings menu you can click through with the mouse. It appears in the headset as well, because UUVR puts it on the same plane as the game's own interface.");
+
+            // Only the name. The settings themselves stay in this file, exactly as they were
+            // before profiles existed - a profile is a copy you can go back to, not a layer the
+            // config now depends on. Delete the profiles file and everything still works.
+            ActiveProfile = Config.Bind(
+                "General", "Active Profile", "",
+                "The profile last chosen in the settings menu. Empty means the settings that ship with the mod. Profiles themselves live in a file of their own next to this one.");
 
             // ---------------- HUD ----------------
 

@@ -88,8 +88,7 @@ namespace LiftoffFpvGoggles
         /// </summary>
         private static int BehindUiQueue(int queue)
         {
-            // Still well clear of opaque geometry at 2000, so the world keeps the overlay.
-            int plane = Mathf.Max(2200, FpvGogglesRunner.GetUiPlaneQueue());
+            int plane = Mathf.Max(FpvGogglesRunner.LowestOverlayQueue, FpvGogglesRunner.GetUiPlaneQueue());
             return plane - 100 + (queue - 5000);
         }
 
@@ -476,7 +475,9 @@ namespace LiftoffFpvGoggles
 
             // Render order is the signal path: the lens vignettes first, the radio link adds
             // snow on top of that, and the goggle screen draws the lot as scanlines. All of it
-            // above the mask (5000) and the horizon (5001).
+            // above the goggle mask at 5000, and above UUVR's UI plane, which ships at 5000 as
+            // well - by two, which is the entire margin the settings panel had. The horizon is
+            // deliberately higher still, at 6006, so it stays readable through all of this.
             _vignette = NewLayer("Vignette", _vignetteTexture, 5002, TextureWrapMode.Clamp, FilterMode.Bilinear);
             _static = NewLayer("Static", _noiseFrames != null ? _noiseFrames[0] : null, 5003,
                 TextureWrapMode.Repeat, FilterMode.Point);

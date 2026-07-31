@@ -692,6 +692,13 @@ namespace LiftoffFpvGoggles
         }
 
         /// <summary>
+        /// As low as anything of ours may be pushed to get under the UI plane. Below this it
+        /// would fall into the alpha tested and opaque queues and start disappearing behind the
+        /// world instead of merely behind the panel.
+        /// </summary>
+        internal const int LowestOverlayQueue = 2200;
+
+        /// <summary>
         /// The queue the plane draws at. UUVR has a setting for it - it is 5000 out of the box,
         /// not the 3000 a canvas material would suggest - so anything of ours that has to be
         /// under the plane has to ask rather than assume.

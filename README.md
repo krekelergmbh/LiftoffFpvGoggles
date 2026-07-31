@@ -5,13 +5,12 @@ Turn a VR headset into a pair of FPV goggles for **Liftoff: Micro Drones**.
 A BepInEx plugin that sits alongside [UUVR](https://github.com/Raicuparta/uuvr). UUVR gets the
 game into a headset; this plugin makes it behave like goggles rather than like VR.
 
-![In flight](docs/in-flight.jpg)
+![The game, and the same frame through the mod](docs/analog-comparison.jpg)
 
-*Mid-flight, seen through the headset. Speed and altitude sit on their own resizable plane, and
-the artificial horizon is the short bar above centre with the fixed mark below it — the drone
-is banked slightly left. Turning your head changes none of this. This one is a single-eye
-SteamVR mirror capture, which is why the lens shape is visible; in the headset it fills your
-view.*
+*One frame, split down the middle of the timer: Liftoff on the left, the same view through the
+goggles on the right. Everything on the right — the softness, the speckle, the colour running off
+the balloons and the scaffolding, the corners going dark — comes out of encoding the picture into
+an analog signal and decoding it again.*
 
 ## Why
 
@@ -34,6 +33,11 @@ on the field, and it quietly makes the sim easier than the thing it is simulatin
   with one key when the map swallows it.
 * **Hide HUD elements.** Drop the crosshair, the stick indicators, the recording icon, or the
   entire HUD, by name.
+* **A settings menu you can use with the headset on.** One key opens it, the mouse does the
+  rest, and it shows up on the same plane as the game's own interface. See
+  [Settings menu](#settings-menu).
+* **Profiles.** Save a set of settings, switch between them from a dropdown. See
+  [Profiles](#profiles).
 
 ![Composite video](docs/composite-video.jpg)
 
@@ -125,23 +129,73 @@ the game's input system and with the headset on.
 **The game receives the same key press.** Anything Liftoff binds itself will do both things at
 once — `F4`, `F5`, `F11` and `F12` toggle Liftoff's HUD and are deliberately left free here.
 
+Four keys, and three of them are things you reach for mid-flight:
+
 | Key | Action |
 |---|---|
 | `F3` | VR on/off (UUVR's key) |
-| `F7` / `F8` | HUD plane smaller / larger |
-| `Home` / `End` | Move HUD left / right |
-| `Page Up` / `Page Down` | Move HUD up / down |
-| `Insert` / `Delete` | Horizon indicator larger / smaller |
-| `F9` | Horizon colour: white → green → red → yellow → off |
 | `F6` | Analog video on/off |
-| `F10` | Goggle mask on/off |
+| `F9` | Horizon colour: white → green → red → yellow → off |
+| `F10` | Settings menu |
 
-`F6` and `F10` apply to the running session only and are never written to the config file — a
-quick A/B comparison during one flight should not silently become the permanent setting. The
-horizon keys are the other way round and *are* saved, because size and colour are preferences
-rather than comparisons.
+**Everything else is unbound on purpose.** HUD size and position, the goggle mask, the horizon
+size — all of it used to have a key, and hunting for a key you cannot see is exactly what the
+settings menu exists to end. They are all still bindable in the config file if you would rather
+have them under your fingers.
+
+`F6` applies to the running session only and is never written to the config file — a quick A/B
+comparison during one flight should not silently become the permanent setting. The horizon colour
+is the other way round and *is* saved, because it is a preference rather than a comparison.
 
 All goggle keys are ignored in menus, where you could not see their effect anyway.
+
+## Settings menu
+
+![Settings menu](docs/settings-menu.jpg)
+
+*`F10` in a flight. It lands on the same plane as the game's HUD, so it is there in the headset,
+and the pointer is drawn onto the panel itself rather than by Windows.*
+
+Press `F10` and click. The rows are built from the settings file rather than listed by hand, so
+the menu cannot fall behind the settings, and changes apply as you make them.
+
+| Button | |
+|---|---|
+| **Read it** | Doubles the HUD plane while the menu is open and puts it back on close. The size you fly with is not the size you read a list of settings at. |
+| **Close** | Also `F10` again. |
+
+Rows appear and disappear with what they depend on: switch composite video off and the settings
+it owns go with it, because a slider that currently changes nothing is worse than a missing one —
+you turn it, nothing happens, and you conclude the mod is broken.
+
+Two things are deliberately **not** in the menu. Key bindings, because a slider cannot express one
+and a menu that asks you to type is a menu you cannot use with a headset on. And the head tracking
+switches, because turning those off mid-flight hands your head back control of the camera while
+you are in the air.
+
+### Profiles
+
+A profile is a named copy of everything the menu shows, kept in
+`BepInEx\config\maxwo.liftoff.fpvgoggles.profiles.cfg`.
+
+| | |
+|---|---|
+| **Default** | Not a stored profile — the settings the mod ships with. Choosing it is the reset button. |
+| **Save as new** | Shown while Default is selected. Starts a new profile, numbered. |
+| **Save** | Shown while a profile is selected. Overwrites it. |
+| **Delete** | Removes the profile and goes back to Default. |
+
+Profiles are numbered rather than named because there is no keyboard in a headset. Rename one by
+editing its heading in the profiles file; the menu picks the new name up.
+
+A profile holds **exactly what the panel shows**, plus the HUD plane's size and position. Not key
+bindings, not the hidden HUD elements, not the head tracking switches. Loading a profile must not
+change something the panel cannot then show you — the first version reset the whole config file,
+which put the crosshair back with nothing on screen to explain why.
+
+Loading also starts from the defaults and applies the profile on top, so a profile written before
+a setting existed leaves that setting at its default rather than at whatever the last profile
+happened to set it to.
 
 ## Configuration
 
@@ -155,6 +209,8 @@ available.
 |---|---|---|
 | `Keep VR Off In Menus` | `true` | Holds VR off in menus so they behave as if unmodded. |
 | `Menu Scene Names` | `menu,splash,lobby,loading` | Comma separated. A scene counts as a menu if its name contains any of these. Everything else is a flight. |
+| `Settings Menu Key` | `F10` | Opens the settings menu. |
+| `Active Profile` | *(empty)* | The profile last chosen in the menu. Empty means the shipped defaults. |
 
 Scene detection is the hinge everything hangs off: VR on/off, the HUD capture mode, and whether
 the goggle keys do anything. The active scene name is logged on every change, so unusual game
@@ -420,6 +476,68 @@ because the stack looks for effect types exactly once and BepInEx may well have 
 The stage is baked into that attribute, so covering both "before transparent" and "after
 everything" takes two types rather than one setting.
 
+### A bug in UUVR that only shows when settings change quickly
+
+`CanvasRedirect.ShouldPatchCanvas` decides whether a screen space camera canvas belongs on the VR
+plane by asking whether that canvas renders into a texture — sensible, because a canvas drawn onto
+a screen inside the game world has no business being in front of your eyes. But it asks the canvas
+**as it stands**, and once UUVR has redirected it, its camera *is* the capture camera, which
+renders into a texture. So the answer flips to "leave it alone", the game's HUD is dropped off the
+plane, and the change after that puts it back because by then it has been restored.
+
+One flicker per setting change is easy to miss. A slider that writes a setting every frame turns
+it into a strobe, which is how this was found.
+
+The fix is to correct the question rather than the answer: while the check runs, the canvas is
+handed back the camera it had before redirection, and gets the capture camera back immediately
+afterwards. Nothing renders in between — it is one synchronous call — and UUVR's own decision is
+left alone, so turning its UI patch mode off still brings canvases back properly.
+
+Only canvases whose **original** render mode was `ScreenSpaceCamera` are affected. A plugin's own
+`ScreenSpaceOverlay` canvas never hits that branch, which is why the settings panel sat perfectly
+still while the game's HUD blinked beside it.
+
+### Alpha does not survive a render texture the way you would expect
+
+The settings panel is drawn into UUVR's capture texture before it reaches the plane, and Unity's
+UI blend is `SrcAlpha OneMinusSrcAlpha` for the alpha channel as well as the colour. Into an empty
+texture that squares it: a layer drawn at 0.97 leaves 0.94 behind, and every layer on top takes
+another bite out of what is already there.
+
+The symptom is not subtle once you know it. A panel at 97% with row plates at 3.5% over it came
+out as a grey wash with the hangar showing through — and the **row plates were lighter than the
+panel they sat on**, which is the giveaway. A filter would have hit both equally.
+
+It cancels exactly if you stagger the alphas: panel at the square root of the opacity you want,
+everything above it at that opacity. `sqrt(t)` squared is `t`, and a layer at `t` over an
+accumulated `t` leaves `t*t + t*(1-t)`, which is `t` again — so it holds however deep the stack
+goes. Worth knowing; not worth using here, because 12% of a bright hangar through a dark panel
+reads as grey paint rather than as glass. The panel is opaque.
+
+### Render queues, and who is on top of whom
+
+Three of our own things and one of UUVR's all draw in front of the camera, and the numbers are
+closer together than they look:
+
+| | Queue |
+|---|---|
+| Goggle mask | 5000 |
+| UUVR's UI plane | 5000 (its own `VR UI Render Queue` setting) |
+| Analog overlay layers | 5002 – 5005 |
+| Horizon indicator | 6006 / 6007 |
+
+The settings panel is drawn onto that plane, so the analog overlay was painting over it — by two
+queue counts — and the horizon was crossing it. **Canvas sorting order cannot answer either**:
+sorting order only orders canvases against each other, and both of those are meshes.
+
+So while the panel is open, both drop below the plane's queue instead. The plane's number is read
+off the plane rather than assumed, because UUVR has a setting for it. And the plane is depth
+tested like any other quad, which is a separate problem with the same symptom: with the drone on
+the ground and the camera tilted down, the floor is nearer than the plane and cuts the bottom off
+the panel. Its depth test comes off while the menu is open — re-applied every frame, because UUVR
+reassigns the plane's shader on every setting change and `unity_GUIZTestMode` is not a declared
+property, so it does not survive.
+
 ### Odds and ends
 
 * UUVR's `Camera Position Offset X` can be written but has no effect;
@@ -453,6 +571,19 @@ everything" takes two types rather than one setting.
   feeds white for a missing colour stream. `mesh.colors32` works whatever shader you land on.
 * Post processing runs after **everything**, overlay quads included. Bright static crossing the
   bloom threshold turns the whole picture into grey haze, so the threshold has to sit above 1.
+* **uGUI draws nothing but hard cornered boxes without a sprite.** Rounded panels, pill switches
+  and thin slider bars all come from one procedural texture per radius, drawn once with half a
+  pixel of falloff at the edge and stretched by nine slice scaling. `SpriteMeshType.FullRect`
+  matters: a tight mesh trims the transparent corners away and the nine slice borders then
+  describe a rectangle that is no longer there.
+* **Unity's `Dropdown` is not usable on a redirected canvas.** It builds a canvas of its own for
+  the popup plus a full screen blocker canvas, and every canvas has to be collected by UUVR before
+  it is visible at all. The profile chooser draws its list inside the panel instead.
+* **A glyph you cannot find in the atlas is a hollow box, which looks like a bug.** The little
+  triangle on that chooser is eleven by six pixels of drawn texture rather than a character from
+  a Unicode block the game's font may or may not carry.
+* One class having a `Toggle()` method makes `Toggle.ToggleTransition.None` fail to compile: when
+  a method and a type share a name, the method wins.
 
 ## Known limitations
 
@@ -522,6 +653,9 @@ game's, and Unity Personal has to be activated first or the editor will not star
 | [src/AnalogOverlay.cs](src/AnalogOverlay.cs) | Overlay artefacts and the radio link model |
 | [src/AnalogPostFx.cs](src/AnalogPostFx.cs) | Camera and lens, through the game's post processing |
 | [src/CompositeVideo.cs](src/CompositeVideo.cs) | The composite pass and its shader bundle |
+| [src/SettingsMenu.cs](src/SettingsMenu.cs) | The settings panel, built from the config entries |
+| [src/SettingsProfiles.cs](src/SettingsProfiles.cs) | Reading and writing profiles |
+| [src/UuvrCanvasFix.cs](src/UuvrCanvasFix.cs) | The Harmony patch for the canvas flicker above |
 | [unity/Assets/Shaders/FpvComposite.shader](unity/Assets/Shaders/FpvComposite.shader) | The encode and decode itself |
 
 One build note worth knowing: the plugin is compiled against the **game's** assemblies

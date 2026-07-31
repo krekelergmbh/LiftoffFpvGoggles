@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
 using UnityEngine;
@@ -191,6 +191,8 @@ namespace LiftoffFpvGoggles
                 if (_root != null) UnityEngine.Object.Destroy(_root);
                 _root = null;
                 _content = null;
+                _panel = null;
+                _profileList = null;
                 _refreshers.Clear();
                 _tickers.Clear();
 
@@ -216,6 +218,8 @@ namespace LiftoffFpvGoggles
         {
             if (_root != null) UnityEngine.Object.Destroy(_root);
             _refreshers.Clear();
+            _tickers.Clear();
+            _profileList = null;
 
             EnsureEventSystem();
             EnsureFont();
@@ -242,6 +246,7 @@ namespace LiftoffFpvGoggles
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.sizeDelta = new Vector2(920f, 760f);
             panelRect.anchoredPosition = Vector2.zero;
+            _panel = panelRect;
 
             // Sits over the panel rather than replacing its corners, so the two shapes cannot
             // disagree about where the edge is.
@@ -438,12 +443,14 @@ namespace LiftoffFpvGoggles
         /// <summary>
         /// Rescales the mouse position into the coordinates the capture camera thinks in.
         ///
-        /// This is why nothing was clickable in the headset. Once UUVR redirects the canvas it
-        /// is drawn by a camera rendering into a texture of its own size - 2544 by 2564 in this
-        /// setup - while the pointer still arrives in game window pixels, at most 1920 by 1080.
-        /// The raycaster divides one by the other, so the cursor you see near the Close button
-        /// is tested against a point three quarters of the way across and less than half way up.
-        /// It misses everything, silently.
+        /// Usually a no-op, and deliberately kept anyway. UUVR builds its capture texture at the
+        /// screen size, so the two normally agree and this divides by one - it was written on the
+        /// theory that the mismatch was why nothing could be clicked in the headset, and that
+        /// turned out to be wrong: the pointer was simply not being drawn where the click landed.
+        ///
+        /// What keeps it here is that the texture is built once and never rebuilt while the game
+        /// runs. Change the resolution mid session and the screen and the texture really do
+        /// disagree, and then every click lands somewhere other than the cursor.
         /// </summary>
         private sealed class ScaledPointer : BaseInput
         {
@@ -525,18 +532,22 @@ namespace LiftoffFpvGoggles
             _zoomButton = NewButton("Zoom", panel, ZoomLabel(), delegate { ToggleZoom(); });
             PlaceHeaderButton(_zoomButton, -124f, 112f);
 
-            Button reset = NewButton("Reset", panel, "Reset all", delegate { ResetAll(); });
-            PlaceHeaderButton(reset, -246f, 104f);
-
             // Separates the title from the list without a heavy bar across the panel.
-            Image line = NewImage("HeaderLine", panel, Divider);
+            AddDivider(panel, -104f);
+            BuildProfileBar(panel);
+            AddDivider(panel, -162f);
+        }
+
+        private static void AddDivider(RectTransform panel, float y)
+        {
+            Image line = NewImage("Divider", panel, Divider);
             line.raycastTarget = false;
             RectTransform lineRect = line.rectTransform;
             lineRect.anchorMin = new Vector2(0f, 1f);
             lineRect.anchorMax = new Vector2(1f, 1f);
             lineRect.pivot = new Vector2(0.5f, 1f);
-            lineRect.offsetMin = new Vector2(26f, -105f);
-            lineRect.offsetMax = new Vector2(-26f, -104f);
+            lineRect.offsetMin = new Vector2(26f, y - 1f);
+            lineRect.offsetMax = new Vector2(-26f, y);
         }
 
         private static void PlaceHeaderButton(Button button, float x, float width)
@@ -562,7 +573,7 @@ namespace LiftoffFpvGoggles
         }
 
         /// <summary>
-        /// Blows the HUD plane up by a third while you are reading the panel, and puts it back.
+        /// Doubles the HUD plane while you are reading the panel, and puts it back.
         ///
         /// The size you fly with and the size you can read a list of settings at are not the
         /// same size, and having to reset the first one by hand after adjusting for the second
@@ -578,7 +589,7 @@ namespace LiftoffFpvGoggles
             else
             {
                 _zoomedFrom = FpvGogglesRunner.GetUiScale();
-                FpvGogglesRunner.SetUiScale(_zoomedFrom * 1.5f);
+                FpvGogglesRunner.SetUiScale(_zoomedFrom * 2f);
             }
 
             if (_zoomButton != null)
@@ -590,46 +601,293 @@ namespace LiftoffFpvGoggles
             Refresh();
         }
 
-        /// <summary>
-        /// Every setting on this panel back to what it ships as, including the two that belong to
-        /// UUVR.
-        ///
-        /// Worth more than it sounds: the sliders apply as you drag them, so a pass through the
-        /// list to see what everything does leaves a trail of values nobody chose. This is the
-        /// way back from that.
-        ///
-        /// Strictly what the panel shows, though. Resetting the whole file also cleared the
-        /// hidden HUD elements and every key binding - settings that are deliberately not in the
-        /// list, so nothing here even hinted they had gone, and the crosshair simply reappeared.
-        /// A reset button may only undo what the button's own screen can put back.
-        /// </summary>
-        private static void ResetAll()
-        {
-            ConfigFile config = FpvGogglesPlugin.Configuration;
-            if (config != null)
-            {
-                foreach (ConfigDefinition definition in config.Keys)
-                {
-                    try
-                    {
-                        ConfigEntryBase entry = config[definition];
-                        if (entry == null || entry.DefaultValue == null) continue;
-                        if (!IsShown(entry)) continue;
+        // ------------------------------------------------------------------
+        // Profiles
+        // ------------------------------------------------------------------
 
-                        entry.BoxedValue = entry.DefaultValue;
-                    }
-                    catch (Exception) { }
-                }
+        private static RectTransform _panel;
+        private static Image _profileBox;
+        private static TMPro.TextMeshProUGUI _profileText;
+        private static RectTransform _chevron;
+        private static Button _saveButton;
+        private static TMPro.TextMeshProUGUI _saveText;
+        private static Button _deleteButton;
+        private static TMPro.TextMeshProUGUI _deleteText;
+        private static GameObject _profileList;
+
+        private const float BarTop = -112f;
+        private const float BarHeight = 34f;
+        private const float ChoiceLeft = 104f;
+        private const float ChoiceWidth = 280f;
+
+        private static string ActiveProfile()
+        {
+            ConfigEntry<string> entry = FpvGogglesPlugin.ActiveProfile;
+            if (entry == null || string.IsNullOrEmpty(entry.Value)) return SettingsProfiles.DefaultName;
+            return entry.Value;
+        }
+
+        private static void SetActiveProfile(string name)
+        {
+            ConfigEntry<string> entry = FpvGogglesPlugin.ActiveProfile;
+            if (entry == null) return;
+
+            entry.Value = name == SettingsProfiles.DefaultName ? "" : name;
+        }
+
+        /// <summary>
+        /// The size you actually chose, which is not the size the HUD is at while the panel is
+        /// blown up for reading. Saving the inflated one would store something you never set.
+        /// </summary>
+        private static float ChosenUiScale()
+        {
+            return _zoomedFrom >= 0f ? _zoomedFrom : FpvGogglesRunner.GetUiScale();
+        }
+
+        private static void BuildProfileBar(RectTransform panel)
+        {
+            TMPro.TextMeshProUGUI label = NewText("ProfileLabel", panel, "Profile", 14, TextAnchor.MiddleLeft);
+            label.color = TextMuted;
+            RectTransform labelRect = label.rectTransform;
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0f, 1f);
+            labelRect.pivot = new Vector2(0f, 1f);
+            labelRect.sizeDelta = new Vector2(70f, BarHeight);
+            labelRect.anchoredPosition = new Vector2(30f, BarTop);
+
+            // Not a Unity Dropdown. That one builds a canvas of its own for the popup, plus a
+            // full screen blocker canvas, and every canvas here has to be collected by UUVR and
+            // put on the plane before it is visible at all. A list drawn inside this panel is a
+            // list we know lands where the pointer is.
+            _profileBox = NewRounded("ProfileChoice", panel, Surface, 8);
+            RectTransform boxRect = _profileBox.rectTransform;
+            boxRect.anchorMin = new Vector2(0f, 1f);
+            boxRect.anchorMax = new Vector2(0f, 1f);
+            boxRect.pivot = new Vector2(0f, 1f);
+            boxRect.sizeDelta = new Vector2(ChoiceWidth, BarHeight);
+            boxRect.anchoredPosition = new Vector2(ChoiceLeft, BarTop);
+
+            _profileText = NewText("Text", boxRect, "", 15, TextAnchor.MiddleLeft);
+            _profileText.color = TextPrimary;
+            RectTransform textRect = _profileText.rectTransform;
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(12f, 0f);
+            textRect.offsetMax = new Vector2(-30f, 0f);
+
+            Image chevron = NewImage("Chevron", boxRect, TextMuted);
+            chevron.sprite = Chevron();
+            chevron.raycastTarget = false;
+            chevron.preserveAspect = true;
+            _chevron = chevron.rectTransform;
+            _chevron.anchorMin = new Vector2(1f, 0.5f);
+            _chevron.anchorMax = new Vector2(1f, 0.5f);
+            _chevron.pivot = new Vector2(0.5f, 0.5f);
+            _chevron.sizeDelta = new Vector2(11f, 6f);
+            _chevron.anchoredPosition = new Vector2(-14f, 0f);
+
+            Button choose = _profileBox.gameObject.AddComponent<Button>();
+            choose.targetGraphic = _profileBox;
+            choose.onClick.AddListener(delegate { ToggleProfileList(); });
+            Tint(choose);
+
+            _saveButton = NewButton("Save", panel, "Save", delegate { SaveProfile(); });
+            PlaceBarButton(_saveButton, -122f, 110f);
+            _saveText = _saveButton.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+
+            _deleteButton = NewButton("Delete", panel, "Delete", delegate { DeleteProfile(); });
+            PlaceBarButton(_deleteButton, -26f, 88f);
+            _deleteText = _deleteButton.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+
+            UpdateProfileBar();
+        }
+
+        private static void PlaceBarButton(Button button, float x, float width)
+        {
+            RectTransform rect = button.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.sizeDelta = new Vector2(width, BarHeight);
+            rect.anchoredPosition = new Vector2(x, BarTop);
+        }
+
+        private static void UpdateProfileBar()
+        {
+            string active = ActiveProfile();
+            bool isDefault = active == SettingsProfiles.DefaultName;
+
+            if (_profileText != null) _profileText.text = active;
+
+            // Saving while the defaults are selected cannot mean overwriting them, so it means
+            // starting a profile instead. That is also the only way to make one - there is no
+            // keyboard to name it with, so it gets a number and can be renamed in the file.
+            if (_saveText != null) _saveText.text = isDefault ? "Save as new" : "Save";
+
+            if (_deleteButton != null) _deleteButton.interactable = !isDefault;
+            if (_deleteText != null) _deleteText.color = isDefault ? TextMuted : TextPrimary;
+        }
+
+        private static void ToggleProfileList()
+        {
+            if (_profileList != null) { CloseProfileList(); return; }
+            OpenProfileList();
+        }
+
+        private static void CloseProfileList()
+        {
+            if (_profileList != null) UnityEngine.Object.Destroy(_profileList);
+            _profileList = null;
+
+            if (_chevron != null) _chevron.localRotation = Quaternion.identity;
+        }
+
+        private static void OpenProfileList()
+        {
+            if (_panel == null) return;
+
+            CloseProfileList();
+
+            _profileList = NewUi("ProfileList", _panel);
+            RectTransform container = _profileList.GetComponent<RectTransform>();
+            Stretch(container);
+            _profileList.transform.SetAsLastSibling();
+
+            // Anything outside the list closes it. Without this the only way out would be
+            // choosing something, which is a trap when you opened it to look.
+            Image blocker = NewHitArea("Blocker", container);
+            Stretch(blocker.rectTransform);
+            Button dismiss = blocker.gameObject.AddComponent<Button>();
+            dismiss.targetGraphic = blocker;
+            dismiss.transition = Selectable.Transition.None;
+            dismiss.onClick.AddListener(delegate { CloseProfileList(); });
+
+            List<string> names = new List<string>();
+            names.Add(SettingsProfiles.DefaultName);
+            names.AddRange(SettingsProfiles.Names());
+
+            // The list is not scrollable, so it cannot be allowed to run off the panel. Anyone
+            // who gets here has more profiles than this menu was meant to hold.
+            const int limit = 9;
+            if (names.Count > limit)
+            {
+                FpvGogglesPlugin.Log.LogWarning("Showing the first " + limit + " of " + names.Count +
+                    " profiles; the rest are in the profiles file.");
+                names.RemoveRange(limit, names.Count - limit);
             }
 
-            // Not ours to have a default for, so these are simply the values that work: the HUD
-            // centred, at the size it is legible at on the plane.
-            _zoomedFrom = -1f;
-            FpvGogglesRunner.SetUiScale(0.5f);
-            FpvGogglesRunner.SetUiOffset(Vector2.zero);
+            const float entryHeight = 32f;
+            float height = names.Count * entryHeight + 8f;
+
+            Image list = NewRounded("List", container, new Color(0.145f, 0.157f, 0.188f, 1f), 8);
+            RectTransform listRect = list.rectTransform;
+            listRect.anchorMin = new Vector2(0f, 1f);
+            listRect.anchorMax = new Vector2(0f, 1f);
+            listRect.pivot = new Vector2(0f, 1f);
+            listRect.sizeDelta = new Vector2(ChoiceWidth, height);
+            listRect.anchoredPosition = new Vector2(ChoiceLeft, BarTop - BarHeight - 4f);
+
+            string active = ActiveProfile();
+
+            for (int i = 0; i < names.Count; i++)
+            {
+                string name = names[i];
+
+                Image entry = NewRounded("Entry", listRect, new Color(0f, 0f, 0f, 0f), 6);
+                RectTransform entryRect = entry.rectTransform;
+                entryRect.anchorMin = new Vector2(0f, 1f);
+                entryRect.anchorMax = new Vector2(1f, 1f);
+                entryRect.pivot = new Vector2(0.5f, 1f);
+
+                // Stretched across the list, four pixels short on each side, one row tall.
+                entryRect.sizeDelta = new Vector2(-8f, entryHeight);
+                entryRect.anchoredPosition = new Vector2(0f, -(4f + i * entryHeight));
+
+                TMPro.TextMeshProUGUI text = NewText("Text", entryRect, name, 15, TextAnchor.MiddleLeft);
+                text.color = name == active ? Accent : TextPrimary;
+                RectTransform textRect = text.rectTransform;
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(10f, 0f);
+                textRect.offsetMax = new Vector2(-10f, 0f);
+
+                Button button = entry.gameObject.AddComponent<Button>();
+                button.targetGraphic = entry;
+
+                ColorBlock colours = button.colors;
+                colours.normalColor = new Color(1f, 1f, 1f, 0f);
+                colours.highlightedColor = new Color(1f, 1f, 1f, 0.10f);
+                colours.pressedColor = new Color(1f, 1f, 1f, 0.16f);
+                colours.selectedColor = new Color(1f, 1f, 1f, 0f);
+                colours.fadeDuration = 0.08f;
+                button.colors = colours;
+
+                button.onClick.AddListener(delegate { ChooseProfile(name); });
+            }
+
+            if (_chevron != null) _chevron.localRotation = Quaternion.Euler(0f, 0f, 180f);
+        }
+
+        /// <summary>
+        /// Loads a profile, or the shipped defaults. Everything downstream has to be told: the
+        /// rows show old values until they are re-read, sections appear and disappear with the
+        /// switches that were just loaded, and the scroll position can end up past the end of a
+        /// list that just got shorter.
+        /// </summary>
+        private static void ChooseProfile(string name)
+        {
+            CloseProfileList();
+
+            float scale;
+            Vector2 offset;
+            SettingsProfiles.Apply(name, out scale, out offset);
+            SetActiveProfile(name);
+
+            // Applying a profile sets the HUD size, and the panel may currently be blown up for
+            // reading. Keep it blown up - against the new size, so closing puts back what the
+            // profile asked for rather than what was there before.
+            if (_zoomedFrom >= 0f)
+            {
+                _zoomedFrom = scale;
+                FpvGogglesRunner.SetUiScale(scale * 2f);
+            }
 
             Refresh();
-            FpvGogglesPlugin.Log.LogInfo("All settings reset to their defaults.");
+            UpdateProfileBar();
+            UpdateVisibility();
+            SnapScrollIntoRange();
+        }
+
+        private static void SaveProfile()
+        {
+            CloseProfileList();
+
+            string name = ActiveProfile();
+            if (name == SettingsProfiles.DefaultName) name = SettingsProfiles.NextFreeName();
+
+            SettingsProfiles.Save(name, ChosenUiScale(), FpvGogglesRunner.GetUiOffset());
+
+            // No reload afterwards: what was just written is what is already live.
+            SetActiveProfile(name);
+            UpdateProfileBar();
+        }
+
+        /// <summary>
+        /// Removes the stored copy and goes back to the defaults.
+        ///
+        /// Leaving the deleted profile's settings running was tried and it reads as broken: the
+        /// chooser says Default while every slider still shows the profile you just deleted. The
+        /// name at the top has to be the truth about what is loaded, or it is worth nothing.
+        /// </summary>
+        private static void DeleteProfile()
+        {
+            CloseProfileList();
+
+            string name = ActiveProfile();
+            if (name == SettingsProfiles.DefaultName) return;
+
+            SettingsProfiles.Delete(name);
+            ChooseProfile(SettingsProfiles.DefaultName);
         }
 
         private static void BuildScrollArea(RectTransform panel)
@@ -640,7 +898,7 @@ namespace LiftoffFpvGoggles
             viewRect.anchorMin = new Vector2(0f, 0f);
             viewRect.anchorMax = new Vector2(1f, 1f);
             viewRect.offsetMin = new Vector2(20f, 20f);
-            viewRect.offsetMax = new Vector2(-34f, -116f);
+            viewRect.offsetMax = new Vector2(-34f, -174f);
 
             // RectMask2D rather than Mask: no stencil buffer, one less thing to go wrong on a
             // canvas somebody else is capturing.
@@ -742,8 +1000,8 @@ namespace LiftoffFpvGoggles
 
             // Top and bottom insets match the viewport's, so the bar starts and ends level with
             // the list rather than floating past it.
-            trackRect.sizeDelta = new Vector2(6f, -136f);
-            trackRect.anchoredPosition = new Vector2(-14f, -48f);
+            trackRect.sizeDelta = new Vector2(6f, -194f);
+            trackRect.anchoredPosition = new Vector2(-14f, -77f);
 
             GameObject area = NewUi("SlidingArea", trackRect);
             RectTransform areaRect = area.GetComponent<RectTransform>();
@@ -943,8 +1201,12 @@ namespace LiftoffFpvGoggles
         /// <summary>
         /// Key bindings and free text stay in the file. A slider cannot express either, and a
         /// menu that asks you to type is a menu you cannot use with a headset on.
+        ///
+        /// This is also what a profile stores and what the defaults put back, so the rule has to
+        /// hold in one place: nothing may be changed behind your back that this panel could not
+        /// then show you.
         /// </summary>
-        private static bool IsShown(ConfigEntryBase entry)
+        internal static bool IsShown(ConfigEntryBase entry)
         {
             Type type = entry.SettingType;
 
@@ -1179,6 +1441,10 @@ namespace LiftoffFpvGoggles
             colours.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f);
             colours.pressedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
             colours.selectedColor = Color.white;
+
+            // Unity's default disabled tint is half transparent, and transparency is exactly what
+            // washes out on UUVR's plane. Darker instead, and fully opaque.
+            colours.disabledColor = new Color(0.55f, 0.55f, 0.55f, 1f);
             colours.fadeDuration = 0.08f;
             selectable.colors = colours;
         }
@@ -1265,13 +1531,13 @@ namespace LiftoffFpvGoggles
             TMPro.TextMeshProUGUI value = NewText("Value", rect, get(), 15, TextAnchor.MiddleCenter);
             value.color = TextValue;
 
-            Button back = NewStepButton("Back", rect, "‹", delegate { step(-1); value.text = get(); });
+            Button back = NewStepButton("Back", rect, "â€¹", delegate { step(-1); value.text = get(); });
 
             // Ordered so the arrows end up either side of the value.
             value.transform.SetSiblingIndex(back.transform.GetSiblingIndex() + 1);
             SetLayout(value.gameObject, 150f);
 
-            NewStepButton("Forward", rect, "›", delegate { step(1); value.text = get(); });
+            NewStepButton("Forward", rect, "â€º", delegate { step(1); value.text = get(); });
 
             _refreshers.Add(delegate { value.text = get(); });
             return row;
@@ -1373,12 +1639,15 @@ namespace LiftoffFpvGoggles
         // One place for the palette, so nothing drifts.
         //
         // Every one of these is fully opaque, and that is not a style choice. The panel is drawn
-        // into UUVR's capture texture before it is shown on the plane, and Unity's UI blend does
-        // not accumulate alpha correctly into a texture: each translucent layer leaves the pixel
-        // *less* opaque than the one under it. So a panel at 97% with rows at 3.5% over it came
-        // out as a grey wash with a bright hangar showing through - the rows lighter than the
-        // panel they sat on, which is the giveaway. At alpha 1 the arithmetic has nothing to get
-        // wrong.
+        // into UUVR's capture texture before it reaches the plane, and Unity's UI blend squares
+        // the alpha on its way into a texture: a layer drawn at a leaves a*a behind, and every
+        // layer on top takes another bite out of what is already there.
+        //
+        // Staggering the alphas cancels that exactly - panel at the square root of the opacity
+        // you want, everything above it at that opacity - and it was tried. It works, and it
+        // still looks wrong: 12% of a bright hangar coming through a dark panel reads as grey
+        // paint, not as glass, because the picture behind is noise and light rather than
+        // something with shapes you can recognise through it. Opaque it is.
         private static readonly Color PanelBack = new Color(0.078f, 0.086f, 0.102f, 1f);
         private static readonly Color PanelEdge = new Color(0.20f, 0.22f, 0.26f, 1f);
         private static readonly Color Divider = new Color(0.16f, 0.18f, 0.21f, 1f);
@@ -1487,6 +1756,51 @@ namespace LiftoffFpvGoggles
 
             _circleSprites[diameter] = sprite;
             return sprite;
+        }
+
+        private static Sprite _chevronSprite;
+
+        /// <summary>
+        /// The little triangle on the profile chooser, drawn rather than typed.
+        ///
+        /// The obvious character for it lives in a Unicode block the game's font may or may not
+        /// have in its atlas, and a missing glyph in TextMeshPro is a hollow box - which would
+        /// look exactly like a bug in the menu. Eleven by six pixels is cheaper than finding out.
+        /// </summary>
+        private static Sprite Chevron()
+        {
+            if (_chevronSprite != null) return _chevronSprite;
+
+            const int width = 11;
+            const int height = 6;
+
+            Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            texture.hideFlags = HideFlags.HideAndDontSave;
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+
+            Color32[] pixels = new Color32[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                // Row 0 is the bottom of the texture, and that is where the tip belongs.
+                float half = y + 0.5f;
+
+                for (int x = 0; x < width; x++)
+                {
+                    float distance = Mathf.Abs(x + 0.5f - width * 0.5f);
+                    byte alpha = (byte)Mathf.RoundToInt(255f * Mathf.Clamp01(half - distance));
+                    pixels[y * width + x] = new Color32(255, 255, 255, alpha);
+                }
+            }
+
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
+
+            _chevronSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height),
+                new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            _chevronSprite.hideFlags = HideFlags.HideAndDontSave;
+            return _chevronSprite;
         }
 
         /// <summary>
